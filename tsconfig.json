@@ -6,6 +6,7 @@
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
     "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
     "target": "es2018",
     "sourceMap": true,
     "outDir": "./dist",
@@ -14,14 +15,8 @@
     "skipLibCheck": true,
     "strict": true,
     "paths": {
-      "*": [
-        "node_modules/*",
-        "src/*"
-      ]
+      "*": ["node_modules/*", "src/*"]
     }
   },
-  "include": [
-    "src/**/*"
-  ]
+  "include": ["src/**/*", "api/**/*"]
 }
-
