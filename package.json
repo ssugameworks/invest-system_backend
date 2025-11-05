@@ -1,0 +1,54 @@
+{
+  "name": "invest-system-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NestJS backend for invest-system",
+  "license": "MIT",
+  "scripts": {
+    "start": "nest start",
+    "start:dev": "nest start --watch",
+    "start:prod": "node dist/main.js",
+    "build": "nest build",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "lint": "eslint \"src/**/*.ts\"",
+    "typeorm:mig:gen": "typeorm-ts-node-commonjs migration:generate -d ormconfig.ts migrations/auto",
+    "typeorm:mig:run": "typeorm-ts-node-commonjs migration:run -d ormconfig.ts",
+    "typeorm:mig:revert": "typeorm-ts-node-commonjs migration:revert -d ormconfig.ts"
+  },
+  "dependencies": {
+    "@nestjs/common": "^10.0.0",
+    "@nestjs/config": "^3.2.2",
+    "@nestjs/core": "^10.0.0",
+    "@nestjs/jwt": "^10.2.0",
+    "@nestjs/platform-express": "^10.0.0",
+    "@nestjs/swagger": "7.4.2",
+    "@nestjs/typeorm": "11.0.0",
+    "bcrypt": "^5.1.1",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.0",
+    "pg": "8.16.3",
+    "reflect-metadata": "^0.2.0",
+    "rxjs": "^7.8.1",
+    "swagger-ui-express": "5.0.1",
+    "typeorm": "0.3.27"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^10.0.0",
+    "@nestjs/schematics": "^10.0.0",
+    "@types/bcrypt": "^5.0.0",
+    "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.0.0",
+    "eslint-config-prettier": "^9.0.0",
+    "eslint-plugin-prettier": "^5.0.0",
+    "prettier": "^3.0.0",
+    "ts-loader": "^9.5.0",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
