@@ -27,7 +27,7 @@ export class InvestController {
   @HttpCode(HttpStatus.CREATED)
   @UseGuards(AuthHeaderGuard)
   @ApiBearerAuth("bearer")
-  @ApiOperation({ summary: "투자 실행" })
+  @ApiOperation({ summary: "투자 실행 (매수)" })
   @ApiCreatedResponse({ type: InvestResponseDto })
   async invest(
     @Body() body: InvestRequestDto,
@@ -36,5 +36,20 @@ export class InvestController {
     const authorization =
       req?.headers?.authorization ?? req?.headers?.Authorization;
     return this.investService.invest(body, authorization);
+  }
+
+  @Post("sell")
+  @HttpCode(HttpStatus.CREATED)
+  @UseGuards(AuthHeaderGuard)
+  @ApiBearerAuth("bearer")
+  @ApiOperation({ summary: "투자 회수 (매도)" })
+  @ApiCreatedResponse({ type: InvestResponseDto })
+  async sell(
+    @Body() body: InvestRequestDto,
+    @Req() req: any
+  ): Promise<InvestResponseDto> {
+    const authorization =
+      req?.headers?.authorization ?? req?.headers?.Authorization;
+    return this.investService.sell(body, authorization);
   }
 }

@@ -23,6 +23,9 @@ export class User {
   @Column({ length: 60 })
   department!: string;
 
+  @Column({ type: "varchar", length: 20, nullable: true })
+  phone_number?: string;
+
   @Column({ length: 120 })
   password!: string;
 
@@ -37,6 +40,14 @@ export class User {
 
   @Column({ type: "integer", nullable: true })
   rank!: number;
+
+  // 총 자산 (보유 현금 + 주식 평가액)
+  @Column({ type: "integer", default: 0 })
+  total_assets!: number;
+
+  // 주식 평가액
+  @Column({ type: "integer", default: 0 })
+  stock_value!: number;
 
   @CreateDateColumn({ type: "timestamptz" })
   created_at!: Date;

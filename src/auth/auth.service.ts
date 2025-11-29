@@ -1,7 +1,8 @@
-import { Injectable, ConflictException } from "@nestjs/common";
+import { Injectable, ConflictException, UnauthorizedException } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import * as bcrypt from "bcrypt";
 import { SignUpDto } from "./dto/signup.dto";
+import { SignInDto } from "./dto/signin.dto";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { User } from "../users/entity/user.entity";
@@ -134,6 +135,12 @@ export class AuthService {
     @InjectRepository(User) private readonly userRepo: Repository<User>
   ) {}
 
+  async checkUserExists(schoolNumber: number): Promise<boolean> {
+    return await this.userRepo.exist({
+      where: { schoolNumber },
+    });
+  }
+
   async signUp(dto: SignUpDto): Promise<string> {
     const duplicated = await this.userRepo.exist({
       where: { schoolNumber: dto.schoolNumber },
@@ -149,10 +156,13 @@ export class AuthService {
       name,
       schoolNumber: dto.schoolNumber,
       department: dto.department,
+      phone_number: dto.phoneNumber,
       password: hashedPassword,
-      capital: 0,
+      capital: 50000, // ✅ 기본 자본금 50,000원
       roi: 0,
       rank: 0,
+      total_assets: 50000, // ✅ 초기 총 자산
+      stock_value: 0,
     } as any);
     const saved = await this.userRepo.save(user as any);
 
@@ -160,5 +170,32 @@ export class AuthService {
     const accessToken = await this.jwtService.signAsync(payload);
     await this.userRepo.update(saved.id, { accessToken });
     return accessToken;
+  }
+
+  async signIn(dto: SignInDto): Promise<{ accessToken: string; userId: number; nickname: string }> {
+    const user = await this.userRepo.findOne({
+      where: { schoolNumber: dto.schoolNumber },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException("학번 또는 비밀번호가 일치하지 않습니다.");
+    }
+
+    const isPasswordValid = await bcrypt.compare(dto.password, user.password);
+    if (!isPasswordValid) {
+      throw new UnauthorizedException("학번 또는 비밀번호가 일치하지 않습니다.");
+    }
+
+    const payload = { sub: user.id, sn: user.schoolNumber };
+    const accessToken = await this.jwtService.signAsync(payload);
+    
+    // accessToken 업데이트
+    await this.userRepo.update(user.id, { accessToken });
+
+    return {
+      accessToken,
+      userId: user.id,
+      nickname: user.name,
+    };
   }
 }

@@ -10,6 +10,7 @@ import { DataSource } from "typeorm";
 import pricingConfig from "./config/pricing.config";
 import { PricingModule } from "./pricing/pricing.module";
 import { InvestModule } from "./invest/invest.module";
+import { TeamsModule } from "./teams/team.module";
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { InvestModule } from "./invest/invest.module";
     CommentsModule,
     InvestModule,
     PricingModule,
+    TeamsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

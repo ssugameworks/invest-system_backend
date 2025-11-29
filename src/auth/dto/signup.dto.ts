@@ -1,6 +1,6 @@
 import { ApiProperty } from "@nestjs/swagger";
 import { Transform } from "class-transformer";
-import { IsInt, IsString, Min, MinLength, IsNotEmpty } from "class-validator";
+import { IsInt, IsString, Min, MinLength, IsNotEmpty, IsOptional, Matches } from "class-validator";
 
 export class SignUpDto {
   @ApiProperty({ example: 20241814, description: "Student number" })
@@ -15,6 +15,14 @@ export class SignUpDto {
   @IsString()
   @IsNotEmpty()
   department!: string;
+
+  @ApiProperty({ example: "010-1234-5678", description: "Phone number" })
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^01[0-9]-?[0-9]{3,4}-?[0-9]{4}$/, {
+    message: "올바른 전화번호 형식이 아닙니다 (예: 010-1234-5678)"
+  })
+  phoneNumber!: string;
 
   @ApiProperty({ example: "P@ssw0rd!", description: "Password" })
   @IsString()
