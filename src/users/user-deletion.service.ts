@@ -87,7 +87,7 @@ export class UserDeletionService {
         totalRefund += result.refundedAmount;
         deletedCount++;
       } catch (error) {
-        console.error(`사용자 ${userId} 삭제 실패:`, error);
+        // 사용자 삭제 실패 시 무시
       }
     }
 

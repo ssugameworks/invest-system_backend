@@ -15,12 +15,24 @@ async function createApp() {
   }
 
   const expressApp = express();
+  // 허용할 origin 목록
+  const allowedOrigins = process.env.FRONTEND_URL
+    ? process.env.FRONTEND_URL.split(',').map(url => url.trim())
+    : ['https://invest.gameworks.app', 'https://gameworks-flow-v1.vercel.app', 'http://localhost:3000'];
+
   const app = await NestFactory.create(
     AppModule,
     new ExpressAdapter(expressApp),
     {
       cors: {
-        origin: true,
+        origin: (origin, callback) => {
+          // origin이 없거나 (같은 origin 요청, Postman 등) 허용된 origin 목록에 있으면 허용
+          if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+          } else {
+            callback(new Error('Not allowed by CORS'));
+          }
+        },
         credentials: true,
       },
     }
