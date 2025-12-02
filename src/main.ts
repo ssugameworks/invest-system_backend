@@ -7,9 +7,32 @@ import { ConfigService } from "@nestjs/config";
 
 async function bootstrap() {
   // 허용할 origin 목록
-  const allowedOrigins = process.env.FRONTEND_URL
-    ? process.env.FRONTEND_URL.split(',').map(url => url.trim())
-    : ['https://invest.gameworks.app', 'https://gameworks-flow-v1.vercel.app', 'http://localhost:3000'];
+  const defaultOrigins = ['https://invest.gameworks.app', 'https://gameworks-flow-v1.vercel.app', 'http://localhost:3000'];
+  
+  let allowedOrigins: string[] = [];
+  
+  // FRONTEND_URL 환경변수가 있으면 쉼표로 구분된 URL들을 파싱
+  if (process.env.FRONTEND_URL) {
+    allowedOrigins = process.env.FRONTEND_URL.split(',').map(url => url.trim()).filter(url => url.length > 0);
+  }
+  
+  // FRONTEND_URL_1, FRONTEND_URL_2 같은 형태의 환경변수도 지원
+  let index = 1;
+  while (process.env[`FRONTEND_URL_${index}`]) {
+    const url = process.env[`FRONTEND_URL_${index}`]?.trim();
+    if (url && !allowedOrigins.includes(url)) {
+      allowedOrigins.push(url);
+    }
+    index++;
+  }
+  
+  // 환경변수가 없거나 비어있으면 기본값 사용
+  if (allowedOrigins.length === 0) {
+    allowedOrigins = defaultOrigins;
+  }
+  
+  // 허용된 origin 목록 로그 출력
+  console.log('Allowed CORS origins:', allowedOrigins);
 
   const app = await NestFactory.create(AppModule, {
     cors: {
