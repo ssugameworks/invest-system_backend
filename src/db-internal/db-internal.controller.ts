@@ -631,6 +631,9 @@ export class DbInternalController {
     let currentEditRow = null;
     let currentEditId = null;
 
+    // API_BASE를 먼저 선언 (다른 함수들보다 먼저)
+    const API_BASE = window.location.origin + '/db-internal/api';
+
     // localStorage에서 토큰 로드
     try {
       adminToken = localStorage.getItem('db_internal_admin_token') || '';
@@ -641,8 +644,6 @@ export class DbInternalController {
     } catch (e) {
       adminToken = '';
     }
-
-    const API_BASE = window.location.origin + '/db-internal/api';
 
     function getAuthHeaders() {
       return {
@@ -667,12 +668,28 @@ export class DbInternalController {
       const response = await fetch(API_BASE + endpoint, fetchOptions);
 
       if (response.status === 401 || response.status === 403) {
+        // 에러 응답에서 상세 메시지 가져오기
+        let errorMessage = '인증이 만료되었습니다.';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.message || errorData.error || errorMessage;
+        } catch (e) {
+          // JSON 파싱 실패 시 기본 메시지 사용
+        }
+        console.error('Authentication error:', errorMessage, 'Status:', response.status);
         handleLogout();
-        throw new Error('인증이 만료되었습니다.');
+        throw new Error(errorMessage);
       }
 
       if (!response.ok) {
-        throw new Error('요청 실패: ' + response.status);
+        let errorMessage = '요청 실패: ' + response.status;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.message || errorData.error || errorMessage;
+        } catch (e) {
+          // JSON 파싱 실패 시 기본 메시지 사용
+        }
+        throw new Error(errorMessage);
       }
 
       return await response.json();

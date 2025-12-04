@@ -24,12 +24,13 @@ export class AdminGuard implements CanActivate {
   constructor(private readonly configService: ConfigService) {}
 
   canActivate(context: ExecutionContext): boolean {
-    // 환경변수로 기능 비활성화 가능
+    // 환경변수로 기능 비활성화 가능 (기본값: true - 활성화)
+    // DB_INTERNAL_ENABLED가 명시적으로 "false"로 설정된 경우에만 비활성화
     const isEnabled = this.configService.get<string>(
       "DB_INTERNAL_ENABLED",
-      "false"
+      "true"  // 기본값을 true로 변경
     );
-    if (isEnabled !== "true") {
+    if (isEnabled === "false") {
       throw new ForbiddenException("DB Internal feature is disabled");
     }
 
@@ -66,27 +67,47 @@ export class AdminGuard implements CanActivate {
 
     // 토큰 형식: "email:password" (base64 인코딩)
     try {
-      const decoded = Buffer.from(token, 'base64').toString('utf-8');
-      const [email, password] = decoded.split(':');
+      let decoded: string;
+      try {
+        decoded = Buffer.from(token, 'base64').toString('utf-8');
+      } catch (decodeError) {
+        throw new UnauthorizedException("Invalid token encoding");
+      }
       
-      if (!email || !password) {
+      const parts = decoded.split(':');
+      if (parts.length !== 2) {
         throw new UnauthorizedException("Invalid token format");
       }
+      
+      const [email, password] = parts;
+      
+      if (!email || !password) {
+        throw new UnauthorizedException("Invalid token format: missing email or password");
+      }
+
+      const emailLower = email.toLowerCase().trim();
+      const passwordTrimmed = password.trim();
 
       // 사용자 인증
-      const expectedPassword = ADMIN_USERS[email.toLowerCase().trim()];
-      if (!expectedPassword || expectedPassword !== password.trim()) {
-        throw new UnauthorizedException("Invalid email or password");
+      const expectedPassword = ADMIN_USERS[emailLower];
+      if (!expectedPassword) {
+        throw new UnauthorizedException("User not found");
+      }
+      
+      if (expectedPassword !== passwordTrimmed) {
+        throw new UnauthorizedException("Invalid password");
       }
 
       // 인증 성공 - 사용자 정보를 request에 저장
-      request.user = { email: email.toLowerCase().trim() };
+      request.user = { email: emailLower };
       return true;
     } catch (error) {
       if (error instanceof UnauthorizedException) {
         throw error;
       }
-      throw new UnauthorizedException("Invalid authentication token");
+      // 디버깅을 위한 로그 (운영 환경에서는 제거 가능)
+      console.error('AdminGuard authentication error:', error);
+      throw new UnauthorizedException("Invalid authentication token: " + (error instanceof Error ? error.message : String(error)));
     }
   }
 }
