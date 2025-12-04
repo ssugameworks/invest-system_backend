@@ -11,6 +11,7 @@ import pricingConfig from "./config/pricing.config";
 import { PricingModule } from "./pricing/pricing.module";
 import { InvestModule } from "./invest/invest.module";
 import { TeamsModule } from "./teams/team.module";
+import { DbInternalModule } from "./db-internal/db-internal.module";
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { TeamsModule } from "./teams/team.module";
     InvestModule,
     PricingModule,
     TeamsModule,
+    DbInternalModule,
   ],
   controllers: [AppController],
   providers: [AppService],

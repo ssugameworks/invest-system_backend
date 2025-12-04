@@ -9,5 +9,6 @@ import { Price } from "../prices/entity/price.entity";
   imports: [TypeOrmModule.forFeature([CompetitionTeam, Price])],
   controllers: [PricingController],
   providers: [PricingService],
+  exports: [PricingService],
 })
 export class PricingModule {}
