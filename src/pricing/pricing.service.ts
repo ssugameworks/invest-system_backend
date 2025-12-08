@@ -42,8 +42,8 @@ export class PricingService implements OnModuleInit {
         
         // E1, E2 계산
         const N = config.N || Number(process.env.PRICING_N ?? 50);
-        const C1 = config.C1 || Number(process.env.PRICING_C1 ?? 5000);
-        const C2 = config.C2 || Number(process.env.PRICING_C2 ?? 3000);
+        const C1 = config.C1 || Number(process.env.PRICING_C1 ?? 8000);
+        const C2 = config.C2 || Number(process.env.PRICING_C2 ?? 5000);
         const T = config.T || Number(process.env.PRICING_T ?? 6);
         config.E1 = (N * C1) / T;
         config.E2 = (N * C2) / T;
@@ -57,8 +57,8 @@ export class PricingService implements OnModuleInit {
     // 환경변수에서 읽기 (fallback)
     const envConfig = this.configService.get<any>("pricing");
     const N = Number(process.env.PRICING_N ?? 50);
-    const C1 = Number(process.env.PRICING_C1 ?? 5000);
-    const C2 = Number(process.env.PRICING_C2 ?? 3000);
+    const C1 = Number(process.env.PRICING_C1 ?? 8000);
+    const C2 = Number(process.env.PRICING_C2 ?? 5000);
     const T = Number(process.env.PRICING_T ?? 6);
     return {
       ...envConfig,

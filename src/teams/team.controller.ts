@@ -1,4 +1,4 @@
-import { Controller, Get, Param, ParseIntPipe, NotFoundException } from "@nestjs/common";
+import { Controller, Get, Param, ParseIntPipe, Query, NotFoundException } from "@nestjs/common";
 import { ApiOkResponse, ApiOperation, ApiParam, ApiTags } from "@nestjs/swagger";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository, MoreThan } from "typeorm";
@@ -48,15 +48,20 @@ export class TeamController {
   }
 
   @Get(":id/price-history")
-  @ApiOperation({ summary: "팀 가격 히스토리 조회 (최근 2.5시간)" })
+  @ApiOperation({ summary: "팀 가격 히스토리 조회 (최근 2.5시간 또는 since 이후)" })
   @ApiParam({ name: "id", type: Number, example: 1 })
   @ApiOkResponse({
     description: "가격 히스토리",
     type: [PriceHistoryDto],
   })
-  async getPriceHistory(@Param("id", ParseIntPipe) id: number): Promise<PriceHistoryDto[]> {
-    // 2.5시간 전
-    const since = new Date(Date.now() - 2.5 * 60 * 60 * 1000);
+  async getPriceHistory(
+    @Param("id", ParseIntPipe) id: number,
+    @Query("since") sinceParam?: string
+  ): Promise<PriceHistoryDto[]> {
+    // since 파라미터가 있으면 해당 시간 이후, 없으면 2.5시간 전부터
+    const since = sinceParam 
+      ? new Date(sinceParam)
+      : new Date(Date.now() - 2.5 * 60 * 60 * 1000);
     
     const prices = await this.priceRepo.find({
       where: {

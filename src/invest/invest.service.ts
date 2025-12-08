@@ -183,12 +183,10 @@ export class InvestService {
 
       // 2. 팀 투자금 감소 (반올림)
       const currentMoney = team.money ?? 0;
-      if (currentMoney < body.amount) {
-        throw new BadRequestException(
-          "팀의 투자금이 부족합니다. (시스템 오류)"
-        );
-      }
-      team.money = Math.round(currentMoney - body.amount);
+      const moneyToDeduct = Math.round(body.amount);
+      
+      // team.money가 음수가 되지 않도록 보호
+      team.money = Math.max(0, Math.round(currentMoney - moneyToDeduct));
       await manager.save(CompetitionTeam, team);
 
       // 3. 포트폴리오 업데이트
