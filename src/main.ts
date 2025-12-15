@@ -62,6 +62,15 @@ async function bootstrap() {
             return;
           }
           
+          // 개발 환경에서는 localhost의 모든 포트 허용 (localhost, 127.0.0.1)
+          if (!isProduction) {
+            const localhostRegex = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+            if (localhostRegex.test(origin)) {
+              callback(null, true);
+              return;
+            }
+          }
+          
           // 허용된 origin 목록에 있으면 허용
           if (allowedOrigins.includes(origin)) {
             callback(null, true);
