@@ -3,7 +3,7 @@ import { AppController } from "./app.controller";
 import { AppService } from "./app.service";
 import { UsersModule } from "./users/user.module";
 import { AuthModule } from "./auth/auth.module";
-import { ConfigModule } from "@nestjs/config";
+import { ConfigModule, ConfigService } from "@nestjs/config";
 import { InjectDataSource, TypeOrmModule } from "@nestjs/typeorm";
 import { CommentsModule } from "./comments/comments.module";
 import { DataSource } from "typeorm";
@@ -15,19 +15,30 @@ import { DbInternalModule } from "./db-internal/db-internal.module";
 
 @Module({
   imports: [
-    TypeOrmModule.forRoot({
-      type: "postgres",
-      url: process.env.SUPABASE_DB_POOLED_URL, // ✅ pooled 연결 권장
-      ssl: { rejectUnauthorized: false },
-      autoLoadEntities: true,
-      synchronize: false, // ✅ 운영은 false (마이그레이션 사용)
-      extra: {
-        max: 30, // 권장: 20~50
-        idleTimeoutMillis: 10_000,
-        connectionTimeoutMillis: 5_000,
+    ConfigModule.forRoot({ isGlobal: true, load: [pricingConfig] }),
+    TypeOrmModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => {
+        const dbUrl = configService.get<string>("SUPABASE_DB_POOLED_URL") || process.env.SUPABASE_DB_POOLED_URL;
+        
+        if (!dbUrl) {
+          throw new Error("SUPABASE_DB_POOLED_URL environment variable is required");
+        }
+
+        return {
+          type: "postgres",
+          url: dbUrl,
+          ssl: { rejectUnauthorized: false },
+          autoLoadEntities: true,
+          synchronize: false, // ✅ 운영은 false (마이그레이션 사용)
+          extra: {
+            max: 30, // 권장: 20~50
+            idleTimeoutMillis: 10_000,
+            connectionTimeoutMillis: 5_000,
+          },
+        };
       },
     }),
-    ConfigModule.forRoot({ isGlobal: true, load: [pricingConfig] }),
     UsersModule,
     AuthModule,
     CommentsModule,
