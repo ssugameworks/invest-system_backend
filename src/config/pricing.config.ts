@@ -1,17 +1,16 @@
 import { registerAs } from "@nestjs/config";
 
 export default registerAs("pricing", () => {
-  const N = Number(process.env.PRICING_N ?? 50);        // 참가자 수: 50명
+  const N = Number(process.env.PRICING_N ?? 100);       // 참가자 수: 100명
   const T = Number(process.env.PRICING_T ?? 6);         // 팀 수: 6개
   const P0 = Number(process.env.PRICING_P0 ?? 1000);    // 초기 주가: 1,000원
-  const C1 = Number(process.env.PRICING_C1 ?? 8000);    // 기준 자본: 8,000원
-  const C2 = Number(process.env.PRICING_C2 ?? 5000);    // 기준 자본: 5,000원
+  const C = Number(process.env.PRICING_C ?? 45000);     // 기준 자본: 45,000원 (총 투자 시드 450만원 / 100명)
   const GAMMA = Number(process.env.PRICING_GAMMA ?? 0.55); // 압축 지수: 0.55 (변동성 적당히)
-  const L1 = Number(process.env.PRICING_L1 ?? 0.6);     // 최소 배수: 0.6 (40% 하락)
-  const U1 = Number(process.env.PRICING_U1 ?? 2.0);     // 최대 배수: 2.0 (2배 상승 → 최대 100,000원)
-  const L2 = Number(process.env.PRICING_L2 ?? 0.7);     // 최소 배수: 0.7
-  const U2 = Number(process.env.PRICING_U2 ?? 1.8);     // 최대 배수: 1.8
-  const E1 = (N * C1) / T;                              // (50 × 8,000) / 6 = 66,667원
-  const E2 = (N * C2) / T;                              // (50 × 5,000) / 6 = 41,667원
-  return { N, T, P0, C1, C2, E1, E2, GAMMA, L1, U1, L2, U2 };
+  const L = Number(process.env.PRICING_L ?? 0.6);      // 최소 배수: 0.6 (40% 하락)
+  // 1등 투자자 최대 수익 7만원 제한을 위해 최대 배수 조정
+  // 초기 자본 45,000원, 최대 총 자산 115,000원 (45,000 + 70,000)
+  // 주가 변동으로 인한 수익은 자산 계산 시 최대 7만원으로 제한됨
+  const U = Number(process.env.PRICING_U ?? 15.0);      // 최대 배수: 15.0 (15배 상승 → 최대 15,000원)
+  const E = (N * C) / T;                                // (100 × 45,000) / 6 = 750,000원 (각 팀이 나눠가지는 총 금액)
+  return { N, T, P0, C, E, GAMMA, L, U };
 });

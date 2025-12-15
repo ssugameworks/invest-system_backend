@@ -30,9 +30,16 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     cors: {
       origin: (origin, callback) => {
-        // origin이 없으면 같은 origin 요청 (같은 서버에서 서빙되는 페이지 등)
-        // DB 인터널 페이지는 같은 서버에서 서빙되므로 origin이 없을 수 있음
+        // 프로덕션 환경에서는 origin이 없으면 거부
+        const isProduction = process.env.NODE_ENV === 'production';
+        
+        // origin이 없는 경우 (같은 origin 요청, Postman 등)
         if (!origin) {
+          // 프로덕션에서는 거부, 개발 환경에서만 허용
+          if (isProduction) {
+            callback(new Error('CORS: Origin is required in production'));
+            return;
+          }
           callback(null, true);
           return;
         }
@@ -43,9 +50,8 @@ async function bootstrap() {
           return;
         }
         
-        // DB 인터널 페이지는 같은 origin이므로 항상 허용
-        // (이미 origin이 없으면 위에서 처리됨)
-        callback(null, true);
+        // 허용되지 않은 origin은 거부
+        callback(new Error('CORS: Not allowed by CORS policy'));
       },
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
@@ -53,22 +59,28 @@ async function bootstrap() {
     },
   });
 
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle("Invest System API")
-    .setDescription("API documentation for the Invest System backend")
-    .setVersion("1.0.0")
-    .addBearerAuth(
-      {
-        type: "http",
-        scheme: "bearer",
-        bearerFormat: "JWT",
-        description: "Enter access token",
-      },
-      "bearer"
-    )
-    .build();
-  const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup("api", app, swaggerDocument);
+  // 프로덕션 환경에서는 Swagger 비활성화
+  const isProduction = process.env.NODE_ENV === 'production';
+  const enableSwagger = process.env.ENABLE_SWAGGER === 'true' || !isProduction;
+  
+  if (enableSwagger) {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle("Invest System API")
+      .setDescription("API documentation for the Invest System backend")
+      .setVersion("1.0.0")
+      .addBearerAuth(
+        {
+          type: "http",
+          scheme: "bearer",
+          bearerFormat: "JWT",
+          description: "Enter access token",
+        },
+        "bearer"
+      )
+      .build();
+    const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup("api", app, swaggerDocument);
+  }
 
   app.useGlobalPipes(
     new ValidationPipe({

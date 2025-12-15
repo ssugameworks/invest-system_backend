@@ -353,13 +353,14 @@ export class DbInternalService {
           config[row.key] = Number(row.value);
         });
         
-        // E1, E2 계산
-        const N = config.N || Number(process.env.PRICING_N ?? 50);
-        const C1 = config.C1 || Number(process.env.PRICING_C1 ?? 5000);
-        const C2 = config.C2 || Number(process.env.PRICING_C2 ?? 3000);
+        // E 계산 (라운드 통합)
+        const N = config.N || Number(process.env.PRICING_N ?? 100);
+        const C = config.C || config.C1 || Number(process.env.PRICING_C ?? process.env.PRICING_C1 ?? 45000);
         const T = config.T || Number(process.env.PRICING_T ?? 6);
-        config.E1 = (N * C1) / T;
-        config.E2 = (N * C2) / T;
+        config.E = (N * C) / T;
+        // 하위 호환성을 위해 E1, E2도 설정
+        config.E1 = config.E;
+        config.E2 = config.E;
         
         return config;
       }
@@ -368,17 +369,30 @@ export class DbInternalService {
     }
 
     // 환경변수에서 읽기 (fallback)
+    const N = Number(process.env.PRICING_N ?? 100);
+    const C = Number(process.env.PRICING_C ?? process.env.PRICING_C1 ?? 45000);
+    const T = Number(process.env.PRICING_T ?? 6);
+    const E = (N * C) / T;
+    const L = Number(process.env.PRICING_L ?? process.env.PRICING_L1 ?? 0.6);
+    const U = Number(process.env.PRICING_U ?? process.env.PRICING_U1 ?? 15.0);
     return {
-      N: Number(process.env.PRICING_N ?? 50),
-      T: Number(process.env.PRICING_T ?? 6),
+      N,
+      T,
       P0: Number(process.env.PRICING_P0 ?? 1000),
-      C1: Number(process.env.PRICING_C1 ?? 5000),
-      C2: Number(process.env.PRICING_C2 ?? 3000),
-      GAMMA: Number(process.env.PRICING_GAMMA ?? 0.5),
-      L1: Number(process.env.PRICING_L1 ?? 0.7),
-      U1: Number(process.env.PRICING_U1 ?? 1.5),
-      L2: Number(process.env.PRICING_L2 ?? 0.8),
-      U2: Number(process.env.PRICING_U2 ?? 1.4),
+      C,
+      E,
+      GAMMA: Number(process.env.PRICING_GAMMA ?? 0.55),
+      L,
+      U,
+      // 하위 호환성을 위해 C1, C2, E1, E2, L1, L2, U1, U2도 설정
+      C1: C,
+      C2: C,
+      E1: E,
+      E2: E,
+      L1: L,
+      L2: L,
+      U1: U,
+      U2: U,
     };
   }
 

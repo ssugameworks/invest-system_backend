@@ -143,13 +143,10 @@ export class DbInternalController {
     N: { type: 'number' },
     T: { type: 'number' },
     P0: { type: 'number' },
-    C1: { type: 'number' },
-    C2: { type: 'number' },
+    C: { type: 'number' },
     GAMMA: { type: 'number' },
-    L1: { type: 'number' },
-    U1: { type: 'number' },
-    L2: { type: 'number' },
-    U2: { type: 'number' }
+    L: { type: 'number' },
+    U: { type: 'number' }
   }}})
   async updatePricingConfig(@Body() updates: Record<string, number>) {
     await this.dbInternalService.updatePricingConfig(updates);
@@ -197,10 +194,8 @@ export class DbInternalController {
     // 토큰 생성: "email:password"를 base64로 인코딩
     const token = Buffer.from(`${email}:${password}`).toString('base64');
     
-    // CORS 헤더 명시적 설정
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    // CORS 헤더는 NestJS의 CORS 설정을 따르므로 여기서 설정하지 않음
+    // (main.ts의 CORS 설정이 적용됨)
     
     return res.json({
       success: true,
@@ -351,43 +346,60 @@ export class DbInternalController {
               <div class="p-3 bg-gray-50 rounded">
                 <label class="block text-gray-600 mb-1">N (참가자 수)</label>
                 <input type="number" id="config-N" step="1" class="w-full px-2 py-1 border border-gray-300 rounded-md" />
+                <p class="text-xs text-gray-500 mt-1">기본값: 100명</p>
               </div>
               <div class="p-3 bg-gray-50 rounded">
                 <label class="block text-gray-600 mb-1">P0 (초기 가격)</label>
                 <input type="number" id="config-P0" step="1" class="w-full px-2 py-1 border border-gray-300 rounded-md" />
               </div>
               <div class="p-3 bg-gray-50 rounded">
-                <label class="block text-gray-600 mb-1">L1 (라운드1 하한)</label>
-                <input type="number" id="config-L1" step="0.01" class="w-full px-2 py-1 border border-gray-300 rounded-md" />
+                <label class="block text-gray-600 mb-1">L (최소 배수)</label>
+                <input type="number" id="config-L" step="0.01" class="w-full px-2 py-1 border border-gray-300 rounded-md" />
+                <p class="text-xs text-gray-500 mt-1">기본값: 0.6 (40% 하락)</p>
               </div>
               <div class="p-3 bg-gray-50 rounded">
-                <label class="block text-gray-600 mb-1">U1 (라운드1 상한)</label>
-                <input type="number" id="config-U1" step="0.01" class="w-full px-2 py-1 border border-gray-300 rounded-md" />
-              </div>
-              <div class="p-3 bg-gray-50 rounded">
-                <label class="block text-gray-600 mb-1">L2 (라운드2 하한)</label>
-                <input type="number" id="config-L2" step="0.01" class="w-full px-2 py-1 border border-gray-300 rounded-md" />
-              </div>
-              <div class="p-3 bg-gray-50 rounded">
-                <label class="block text-gray-600 mb-1">U2 (라운드2 상한)</label>
-                <input type="number" id="config-U2" step="0.01" class="w-full px-2 py-1 border border-gray-300 rounded-md" />
+                <label class="block text-gray-600 mb-1">U (최대 배수)</label>
+                <input type="number" id="config-U" step="0.01" class="w-full px-2 py-1 border border-gray-300 rounded-md" />
+                <p class="text-xs text-gray-500 mt-1">기본값: 15.0 (15배 상승)</p>
               </div>
               <div class="p-3 bg-gray-50 rounded">
                 <label class="block text-gray-600 mb-1">GAMMA (압축 계수)</label>
                 <input type="number" id="config-GAMMA" step="0.01" class="w-full px-2 py-1 border border-gray-300 rounded-md" />
+                <p class="text-xs text-gray-500 mt-1">기본값: 0.55</p>
               </div>
               <div class="p-3 bg-gray-50 rounded">
-                <label class="block text-gray-600 mb-1">C1 (자본1)</label>
-                <input type="number" id="config-C1" step="1" class="w-full px-2 py-1 border border-gray-300 rounded-md" />
+                <label class="block text-gray-600 mb-1">C (개인 초기 자본)</label>
+                <input type="number" id="config-C" step="1" class="w-full px-2 py-1 border border-gray-300 rounded-md" />
+                <p class="text-xs text-gray-500 mt-1">기본값: 45,000원</p>
               </div>
               <div class="p-3 bg-gray-50 rounded">
-                <label class="block text-gray-600 mb-1">C2 (자본2)</label>
-                <input type="number" id="config-C2" step="1" class="w-full px-2 py-1 border border-gray-300 rounded-md" />
-              </div>
-              <div class="p-3 bg-gray-50 rounded">
-                <label class="block text-gray-600 mb-1">T (시간 단위)</label>
+                <label class="block text-gray-600 mb-1">T (팀 수)</label>
                 <input type="number" id="config-T" step="1" class="w-full px-2 py-1 border border-gray-300 rounded-md" />
+                <p class="text-xs text-gray-500 mt-1">기본값: 6개</p>
               </div>
+            </div>
+            <div class="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+              <h4 class="text-sm font-semibold text-blue-900 mb-2">📊 투자 시드 정보</h4>
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+                <div>
+                  <p class="text-gray-600">총 투자 시드</p>
+                  <p id="total-seed" class="text-lg font-bold text-blue-600">-</p>
+                  <p class="text-xs text-gray-500">(N × C1 = 100 × 45,000)</p>
+                </div>
+                <div>
+                  <p class="text-gray-600">팀당 평균 투자금 (E1)</p>
+                  <p id="avg-investment" class="text-lg font-bold text-blue-600">-</p>
+                  <p class="text-xs text-gray-500">(총 시드 ÷ T)</p>
+                </div>
+                <div>
+                  <p class="text-gray-600">현재 총 투자금</p>
+                  <p id="current-total" class="text-lg font-bold text-blue-600">-</p>
+                  <p class="text-xs text-gray-500">(모든 팀 투자금 합계)</p>
+                </div>
+              </div>
+              <p class="text-xs text-red-600 mt-2 font-semibold">
+                ⚠️ 총 투자 시드는 450만원으로 제한됩니다. 투자 시 자동으로 제한됩니다.
+              </p>
             </div>
             <p class="text-xs text-gray-500 mt-2">
               * 설정을 변경한 후 "설정 저장" 버튼을 클릭하세요. 변경사항은 즉시 적용됩니다.
@@ -873,29 +885,76 @@ export class DbInternalController {
         const config = await apiRequest('/pricing/config');
         document.getElementById('config-N').value = config.N || '';
         document.getElementById('config-P0').value = config.P0 || '';
-        document.getElementById('config-L1').value = config.L1 || '';
-        document.getElementById('config-U1').value = config.U1 || '';
-        document.getElementById('config-L2').value = config.L2 || '';
-        document.getElementById('config-U2').value = config.U2 || '';
+        // 통합된 변수 사용 (하위 호환성을 위해 L1, U1, C1도 지원)
+        document.getElementById('config-L').value = config.L || config.L1 || '';
+        document.getElementById('config-U').value = config.U || config.U1 || '';
         document.getElementById('config-GAMMA').value = config.GAMMA || '';
-        document.getElementById('config-C1').value = config.C1 || '';
-        document.getElementById('config-C2').value = config.C2 || '';
+        document.getElementById('config-C').value = config.C || config.C1 || '';
         document.getElementById('config-T').value = config.T || '';
+        
+        // 투자 시드 정보 업데이트
+        updateInvestmentSeedInfo(config);
       } catch (error) {
         console.error('Failed to load pricing config:', error);
+      }
+    }
+
+    async function updateInvestmentSeedInfo(config) {
+      try {
+        const N = config.N || 100;
+        const C = config.C || config.C1 || 45000;
+        const T = config.T || 6;
+        const totalSeed = N * C;
+        const avgInvestment = T > 0 ? totalSeed / T : 0;
+        
+        document.getElementById('total-seed').textContent = totalSeed.toLocaleString() + '원';
+        document.getElementById('avg-investment').textContent = Math.round(avgInvestment).toLocaleString() + '원';
+        
+        // 현재 총 투자금 조회
+        try {
+          const teams = await apiRequest('/tables/competition_teams/data?limit=100');
+          const currentTotal = teams.rows.reduce((sum, team) => sum + (team.money || 0), 0);
+          document.getElementById('current-total').textContent = currentTotal.toLocaleString() + '원';
+          
+          // 450만원 제한 경고
+          if (currentTotal > 4500000) {
+            document.getElementById('current-total').classList.add('text-red-600');
+            document.getElementById('current-total').classList.remove('text-blue-600');
+          } else {
+            document.getElementById('current-total').classList.remove('text-red-600');
+            document.getElementById('current-total').classList.add('text-blue-600');
+          }
+        } catch (error) {
+          document.getElementById('current-total').textContent = '조회 실패';
+        }
+      } catch (error) {
+        console.error('Failed to update investment seed info:', error);
       }
     }
 
     async function savePricingConfig() {
       try {
         const updates = {};
-        const keys = ['N', 'T', 'P0', 'C1', 'C2', 'GAMMA', 'L1', 'U1', 'L2', 'U2'];
+        const keys = ['N', 'T', 'P0', 'C', 'GAMMA', 'L', 'U'];
         
         for (const key of keys) {
           const input = document.getElementById('config-' + key);
-          const value = input.value.trim();
-          if (value !== '') {
-            updates[key] = parseFloat(value);
+          if (input) {
+            const value = input.value.trim();
+            if (value !== '') {
+              updates[key] = parseFloat(value);
+              // 하위 호환성을 위해 C1, C2, L1, L2, U1, U2도 설정
+              if (key === 'C') {
+                updates.C1 = parseFloat(value);
+                updates.C2 = parseFloat(value);
+              } else if (key === 'L') {
+                updates.L1 = parseFloat(value);
+                updates.L2 = parseFloat(value);
+              } else if (key === 'U') {
+                updates.U1 = parseFloat(value);
+                updates.U2 = parseFloat(value);
+              }
+            }
           }
         }
 
@@ -911,6 +970,7 @@ export class DbInternalController {
 
         alert('가격 설정이 저장되었습니다.');
         await loadPricingConfig();
+        await updateInvestmentSeedInfo(updates);
       } catch (error) {
         alert('저장에 실패했습니다: ' + error.message);
       }
@@ -1303,6 +1363,15 @@ export class DbInternalController {
       loadData();
       loadPricingConfig();
       loadTeamsForPriceEditor();
+      // 투자 시드 정보 주기적 업데이트 (10초마다)
+      setInterval(async () => {
+        try {
+          const config = await apiRequest('/pricing/config');
+          await updateInvestmentSeedInfo(config);
+        } catch (error) {
+          console.error('Failed to update investment seed info:', error);
+        }
+      }, 10000);
     } else {
       showLoginScreen();
     }

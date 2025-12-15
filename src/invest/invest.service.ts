@@ -73,16 +73,42 @@ export class InvestService {
         throw new BadRequestException("유효하지 않은 주가입니다.");
       }
 
-      // 주식 수 계산
-      const shares = body.amount / currentPrice;
+      // 전체 팀의 투자금 합계 확인 (총 투자 시드 450만원 제한)
+      const TOTAL_INVESTMENT_SEED = 4500000; // 총 투자 시드 450만원
+      const allTeams = await manager.find(CompetitionTeam);
+      const currentTotalInvestment = allTeams.reduce(
+        (sum, t) => sum + (t.money ?? 0),
+        0
+      );
+      const remainingCapacity = TOTAL_INVESTMENT_SEED - currentTotalInvestment;
 
-      // 1. 사용자 자본 차감 (반올림)
-      user.capital = Math.round(currentCapital - body.amount);
+      // 투자 가능 금액 제한
+      let investAmount = body.amount;
+      if (currentTotalInvestment + investAmount > TOTAL_INVESTMENT_SEED) {
+        if (remainingCapacity <= 0) {
+          throw new BadRequestException(
+            `총 투자 시드 450만원에 도달했습니다. 더 이상 투자할 수 없습니다.`
+          );
+        }
+        // 남은 용량만큼만 투자 가능
+        investAmount = Math.max(0, remainingCapacity);
+        if (investAmount === 0) {
+          throw new BadRequestException(
+            `총 투자 시드 450만원에 도달했습니다. 더 이상 투자할 수 없습니다.`
+          );
+        }
+      }
+
+      // 주식 수 계산
+      const shares = investAmount / currentPrice;
+
+      // 1. 사용자 자본 차감 (반올림) - 실제 투자 금액만큼만 차감
+      user.capital = Math.round(currentCapital - investAmount);
       await manager.save(User, user);
 
       // 2. 팀 투자금 증가 (반올림)
       const currentMoney = team.money ?? 0;
-      team.money = Math.round(currentMoney + body.amount);
+      team.money = Math.round(currentMoney + investAmount);
       await manager.save(CompetitionTeam, team);
 
       // 3. 포트폴리오 업데이트
@@ -93,7 +119,7 @@ export class InvestService {
       if (investment) {
         // 기존 투자 업데이트
         investment.shares = Number(investment.shares) + shares;
-        investment.invested_amount = Math.round(investment.invested_amount + body.amount);
+        investment.invested_amount = Math.round(investment.invested_amount + investAmount);
         investment.average_price = Math.round(
           investment.invested_amount / investment.shares
         );
@@ -103,7 +129,7 @@ export class InvestService {
           user_id: user.id,
           team_id: body.teamId,
           shares,
-          invested_amount: Math.round(body.amount),
+          invested_amount: Math.round(investAmount),
           average_price: Math.round(currentPrice),
         });
       }
@@ -114,7 +140,7 @@ export class InvestService {
         user_id: user.id,
         team_id: body.teamId,
         type: "buy",
-        amount: body.amount,
+        amount: investAmount,
         price: currentPrice,
         shares,
       });
@@ -123,10 +149,15 @@ export class InvestService {
       // 5. 자산 재계산
       await this.updateUserAssets(user.id, manager);
 
+      const message = 
+        investAmount < body.amount
+          ? `투자가 완료되었습니다. (${shares.toFixed(4)}주 매수, 요청: ${body.amount.toLocaleString()}원, 실제: ${investAmount.toLocaleString()}원 - 총 투자 시드 450만원 제한)`
+          : `투자가 완료되었습니다. (${shares.toFixed(4)}주 매수)`;
+
       return {
-        amount: body.amount,
+        amount: investAmount,
         status: "success",
-        message: `투자가 완료되었습니다. (${shares.toFixed(4)}주 매수)`,
+        message,
       };
     });
   }
@@ -252,8 +283,19 @@ export class InvestService {
 
     const user = await manager.findOne(User, { where: { id: userId } });
     if (user) {
-      const total_assets = Math.round((user.capital ?? 0) + stock_value);
-      const INITIAL_CAPITAL = 50000; // 초기 자본 50,000원
+      const INITIAL_CAPITAL = 45000; // 초기 자본 45,000원 (총 투자 시드 450만원 / 100명)
+      const MAX_PROFIT = 70000; // 최대 수익 7만원
+      const MAX_TOTAL_ASSETS = INITIAL_CAPITAL + MAX_PROFIT; // 최대 총 자산 115,000원
+      
+      let total_assets = Math.round((user.capital ?? 0) + stock_value);
+      
+      // 1등 투자자 최대 수익 제한: 총 자산이 최대치를 넘지 않도록 제한
+      if (total_assets > MAX_TOTAL_ASSETS) {
+        total_assets = MAX_TOTAL_ASSETS;
+        // 주식 평가액을 조정하여 총 자산이 최대치가 되도록 함
+        stock_value = Math.max(0, MAX_TOTAL_ASSETS - (user.capital ?? 0));
+      }
+      
       const roi = INITIAL_CAPITAL > 0 
         ? Math.round(((total_assets - INITIAL_CAPITAL) / INITIAL_CAPITAL) * 100)
         : 0;
