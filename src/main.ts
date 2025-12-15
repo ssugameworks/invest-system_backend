@@ -1,4 +1,9 @@
 import "dotenv/config";
+// crypto polyfill for TypeORM (Node.js 18+ requires explicit import in CommonJS)
+import { webcrypto } from "crypto";
+if (typeof (globalThis as any).crypto === "undefined") {
+  (globalThis as any).crypto = webcrypto;
+}
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
