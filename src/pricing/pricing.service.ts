@@ -175,7 +175,7 @@ export class PricingService implements OnModuleInit {
       
       // 최근 투자 금액에 비례하여 주가 변화량 계산
       // 50,000원 투자 시 5~10원 상승: 계수 = 7.5 / 50,000 = 0.00015
-      const priceChangePerWon = 0.0005; // 투자금 1원당 주가 변화량 (10배 증가)
+      const priceChangePerWon = 0.0001; // 투자금 1원당 주가 변화량 (10배 증가)
       const priceChange = recentInvestmentAmount * priceChangePerWon;
       const targetPrice = basePrice + priceChange;
       
@@ -186,13 +186,13 @@ export class PricingService implements OnModuleInit {
 
       const currentPrice = p1;
 
-      // prices 테이블에 가격 이력 저장 (임시로 비활성화 - 문제 원인)
-      // await this.priceRepo.save({
-      //   teamId: team.id,
-      //   round: 1,
-      //   price: p1,
-      //   tickTs: now
-      // });
+      // prices 테이블에 가격 이력 저장
+      await this.priceRepo.save({
+        teamId: team.id,
+        round: 1,
+        price: p1,
+        tickTs: now
+      });
 
       // ⭐ Raw SQL로 직접 업데이트 (확실한 저장)
       await this.dataSource.query(

@@ -48,7 +48,7 @@ export class TeamController {
   }
 
   @Get(":id/price-history")
-  @ApiOperation({ summary: "팀 가격 히스토리 조회 (최근 2.5시간 또는 since 이후)" })
+  @ApiOperation({ summary: "팀 가격 히스토리 조회 (최근 20분 또는 since 이후)" })
   @ApiParam({ name: "id", type: Number, example: 1 })
   @ApiOkResponse({
     description: "가격 히스토리",
@@ -58,10 +58,10 @@ export class TeamController {
     @Param("id", ParseIntPipe) id: number,
     @Query("since") sinceParam?: string
   ): Promise<PriceHistoryDto[]> {
-    // since 파라미터가 있으면 해당 시간 이후, 없으면 2.5시간 전부터
+    // since 파라미터가 있으면 해당 시간 이후, 없으면 20분 전부터
     const since = sinceParam 
       ? new Date(sinceParam)
-      : new Date(Date.now() - 2.5 * 60 * 60 * 1000);
+      : new Date(Date.now() - 20 * 60 * 1000);
     
     const prices = await this.priceRepo.find({
       where: {
@@ -74,7 +74,30 @@ export class TeamController {
       select: ["price", "tickTs"],
     });
 
-    return prices;
+    // prices 테이블에 데이터가 없거나 부족한 경우, 현재 주가를 포함하여 반환
+    const team = await this.teamRepo.findOne({ where: { id } });
+    if (!team) {
+      throw new NotFoundException("팀을 찾을 수 없습니다.");
+    }
+
+    const now = new Date();
+    const result: PriceHistoryDto[] = [...prices];
+
+    // 현재 주가가 있고, 마지막 히스토리와 시간 차이가 있으면 현재 주가 추가
+    if (team.p && team.p > 0) {
+      const lastPrice = prices.length > 0 ? prices[prices.length - 1] : null;
+      const shouldAddCurrentPrice = !lastPrice || 
+        (now.getTime() - new Date(lastPrice.tickTs).getTime()) > 5000; // 5초 이상 차이나면 추가
+      
+      if (shouldAddCurrentPrice) {
+        result.push({
+          price: team.p,
+          tickTs: now,
+        });
+      }
+    }
+
+    return result;
   }
 }
 
