@@ -355,7 +355,7 @@ export class DbInternalService {
         
         // E 계산 (라운드 통합)
         const N = config.N || Number(process.env.PRICING_N ?? 100);
-        const C = config.C || config.C1 || Number(process.env.PRICING_C ?? process.env.PRICING_C1 ?? 45000);
+        const C = config.C || config.C1 || Number(process.env.PRICING_C ?? process.env.PRICING_C1 ?? 50000);
         const T = config.T || Number(process.env.PRICING_T ?? 6);
         config.E = (N * C) / T;
         // 하위 호환성을 위해 E1, E2도 설정
@@ -370,7 +370,7 @@ export class DbInternalService {
 
     // 환경변수에서 읽기 (fallback)
     const N = Number(process.env.PRICING_N ?? 100);
-    const C = Number(process.env.PRICING_C ?? process.env.PRICING_C1 ?? 45000);
+    const C = Number(process.env.PRICING_C ?? process.env.PRICING_C1 ?? 50000);
     const T = Number(process.env.PRICING_T ?? 6);
     const E = (N * C) / T;
     const L = Number(process.env.PRICING_L ?? process.env.PRICING_L1 ?? 0.6);

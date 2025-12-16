@@ -98,8 +98,14 @@ export class PortfolioController {
       const team = await this.teamRepo.findOne({ where: { id: inv.team_id } });
       if (!team) continue;
 
-      const currentPrice = team.p ?? team.p0 ?? 0;
+      const currentPrice = team.p ?? 700; // p 기본값 700
       const shares = Number(inv.shares);
+      
+      // shares가 0 이하이거나 매우 작은 값(0.0001 이하)인 경우 포트폴리오에서 제외
+      if (shares <= 0.0001) {
+        continue;
+      }
+      
       const itemValue = Math.round(shares * currentPrice);
       const profit_loss = itemValue - inv.invested_amount;
       const profit_rate =
@@ -205,7 +211,7 @@ export class PortfolioController {
         shares: 0,
         invested_amount: 0,
         average_price: 0,
-        current_price: team?.p ?? team?.p0 ?? 0,
+        current_price: team?.p ?? 700, // p 기본값 700
         current_value: 0,
         amount: 0, // 매도 시 사용
         profit_loss: 0,
@@ -229,7 +235,7 @@ export class PortfolioController {
       };
     }
 
-    const currentPrice = team.p ?? team.p0 ?? 0;
+    const currentPrice = team.p ?? 700; // p 기본값 700
     const shares = Number(investment.shares);
     const current_value = Math.round(shares * currentPrice);
     const profit_loss = current_value - investment.invested_amount;

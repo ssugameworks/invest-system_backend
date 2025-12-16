@@ -398,7 +398,7 @@ export class DbInternalController {
                 </div>
               </div>
               <p class="text-xs text-red-600 mt-2 font-semibold">
-                ⚠️ 총 투자 시드는 450만원으로 제한됩니다. 투자 시 자동으로 제한됩니다.
+                ⚠️ 총 투자 시드는 500만원으로 제한됩니다. 투자 시 자동으로 제한됩니다.
               </p>
             </div>
             <p class="text-xs text-gray-500 mt-2">
@@ -902,7 +902,7 @@ export class DbInternalController {
     async function updateInvestmentSeedInfo(config) {
       try {
         const N = config.N || 100;
-        const C = config.C || config.C1 || 45000;
+        const C = config.C || config.C1 || 50000;
         const T = config.T || 6;
         const totalSeed = N * C;
         const avgInvestment = T > 0 ? totalSeed / T : 0;
@@ -916,8 +916,8 @@ export class DbInternalController {
           const currentTotal = teams.rows.reduce((sum, team) => sum + (team.money || 0), 0);
           document.getElementById('current-total').textContent = currentTotal.toLocaleString() + '원';
           
-          // 450만원 제한 경고
-          if (currentTotal > 4500000) {
+          // 500만원 제한 경고
+          if (currentTotal > 5000000) {
             document.getElementById('current-total').classList.add('text-red-600');
             document.getElementById('current-total').classList.remove('text-blue-600');
           } else {

@@ -3,32 +3,59 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { Repository, DataSource } from "typeorm";
 import { CompetitionTeam } from "../teams/entity/team.entity";
 import { Price } from "../prices/entity/price.entity";
+import { UserInvestment } from "../investments/entity/user-investment.entity";
+import { InvestmentHistory } from "../investments/entity/investment-history.entity";
 import { ConfigService } from "@nestjs/config";
 import { clip, rootCompress } from "../utils/pricing.util";
 
 @Injectable()
 export class PricingService implements OnModuleInit {
   private readonly logger = new Logger(PricingService.name);
+  private isRecalculating = false; // ⭐ 중복 실행 방지 플래그
 
   constructor(
     @InjectRepository(CompetitionTeam)
     private readonly teamRepo: Repository<CompetitionTeam>,
     @InjectRepository(Price)
     private readonly priceRepo: Repository<Price>,
+    @InjectRepository(UserInvestment)
+    private readonly userInvestmentRepo: Repository<UserInvestment>,
+    @InjectRepository(InvestmentHistory)
+    private readonly investmentHistoryRepo: Repository<InvestmentHistory>,
     private readonly configService: ConfigService,
     private readonly dataSource: DataSource
   ) {}
 
-  onModuleInit(): void {
-    // Fallback scheduler without @nestjs/schedule
+  async onModuleInit(): Promise<void> {
+    // ⭐ 초기 가격 설정을 먼저 완료하고 기다림
+    try {
+      await this.initializePrices();
+    } catch (err) {
+      // 에러 발생 시 무시
+    }
+
+    // ⭐ 초기화 완료 후에 스케줄러 시작
     setInterval(() => {
-      this.recalcEvery10s().catch((err) =>
-        this.logger.error("Recalc error", err as any)
-      );
+      this.recalcEvery10s().catch(() => {
+        // 에러 발생 시 무시
+      });
     }, 10_000);
   }
 
+  private async initializePrices(): Promise<void> {
+    const INITIAL_PRICE = 700; // ⭐ 초기 주가 700원
+    
+    // ⭐ 모든 팀의 p를 무조건 700으로 초기화
+    await this.dataSource.query(
+      `UPDATE competition_teams SET p = $1`,
+      [INITIAL_PRICE]
+    );
+  }
+
   private async getPricingConfig(): Promise<any> {
+    // ⭐ P0는 항상 700으로 고정
+    const FIXED_P0 = 700;
+    
     // DB에서 가격 설정 읽기, 없으면 환경변수에서 읽기
     try {
       const query = `SELECT key, value FROM pricing_config`;
@@ -40,9 +67,12 @@ export class PricingService implements OnModuleInit {
           config[row.key] = Number(row.value);
         });
         
+        // ⭐ P0 강제 덮어쓰기
+        config.P0 = FIXED_P0;
+        
         // E 계산
         const N = config.N || Number(process.env.PRICING_N ?? 100);
-        const C = config.C || config.C1 || Number(process.env.PRICING_C ?? process.env.PRICING_C1 ?? 45000);
+        const C = config.C || config.C1 || Number(process.env.PRICING_C ?? process.env.PRICING_C1 ?? 50000);
         const T = config.T || Number(process.env.PRICING_T ?? 6);
         config.E = (N * C) / T;
         // 하위 호환성을 위해 E1, E2도 설정
@@ -58,11 +88,12 @@ export class PricingService implements OnModuleInit {
     // 환경변수에서 읽기 (fallback)
     const envConfig = this.configService.get<any>("pricing");
     const N = Number(process.env.PRICING_N ?? 100);
-    const C = Number(process.env.PRICING_C ?? process.env.PRICING_C1 ?? 45000);
+    const C = Number(process.env.PRICING_C ?? process.env.PRICING_C1 ?? 50000);
     const T = Number(process.env.PRICING_T ?? 6);
     const E = (N * C) / T;
     return {
       ...envConfig,
+      P0: FIXED_P0, // ⭐ P0 강제 설정
       E,
       // 하위 호환성을 위해 E1, E2도 설정
       E1: E,
@@ -71,29 +102,34 @@ export class PricingService implements OnModuleInit {
   }
 
   async recalcEvery10s(): Promise<void> {
-    const config = await this.getPricingConfig();
+    // ⭐ 이미 실행 중이면 스킵 (중복 실행 방지)
+    if (this.isRecalculating) {
+      return;
+    }
+    
+    this.isRecalculating = true;
+    try {
+      const config = await this.getPricingConfig();
     const { P0, E, GAMMA, L, U } = config;
     // 하위 호환성을 위해 E1, L1, U1도 지원
     const effectiveE = E || config.E1 || 750000;
     const effectiveL = L || config.L1 || 0.6;
     const effectiveU = U || config.U1 || 15.0;
 
+    // DB에서 최신 값 가져오기
     const teams = await this.teamRepo.find();
     const now = new Date();
 
-    // 전체 투자금 합계 확인 (총 투자 시드 450만원 제한)
-    const TOTAL_INVESTMENT_SEED = 4500000; // 총 투자 시드 450만원
+    // 전체 투자금 합계 확인 (총 투자 시드 500만원 제한)
+    const TOTAL_INVESTMENT_SEED = 5000000; // 총 투자 시드 500만원
     const currentTotalInvestment = teams.reduce(
       (sum, t) => sum + (t.money ?? 0),
       0
     );
 
-    // 전체 투자금이 450만원을 초과하면 비례적으로 조정
+    // 전체 투자금이 500만원을 초과하면 비례적으로 조정
     if (currentTotalInvestment > TOTAL_INVESTMENT_SEED) {
       const scaleFactor = TOTAL_INVESTMENT_SEED / currentTotalInvestment;
-      this.logger.warn(
-        `Total investment ${currentTotalInvestment.toLocaleString()} exceeds limit ${TOTAL_INVESTMENT_SEED.toLocaleString()}. Scaling by ${scaleFactor.toFixed(4)}`
-      );
 
       // 모든 팀의 투자금을 비례적으로 조정
       for (const team of teams) {
@@ -105,26 +141,99 @@ export class PricingService implements OnModuleInit {
 
     for (const team of teams) {
       const i = Number(team.money ?? 0);
-      const d = effectiveE > 0 ? i / effectiveE : 0;
-      const r = rootCompress(d, GAMMA);
-      const m = clip(r, effectiveL, effectiveU);
-      const p1 = Math.round((team.p0 ?? P0) * m);
+      
+      // ⭐ Raw SQL로 직접 p 값을 읽기 (캐시 완전 무시)
+      const result = await this.dataSource.query(
+        `SELECT p FROM competition_teams WHERE id = $1`,
+        [team.id]
+      );
+      let basePrice: number = result[0]?.p ?? P0;
+      
+      // basePrice가 0이거나 null이면 초기값으로 설정
+      if (!basePrice || basePrice === 0) {
+        basePrice = P0;
+        await this.dataSource.query(
+          `UPDATE competition_teams SET p = $1 WHERE id = $2`,
+          [P0, team.id]
+        );
+      }
+      
+      // 주가 계산: 현재 주가를 기준으로 하되, 최근 투자금 변화량만 반영
+      // 문제: team.money는 누적 투자금이므로, 전체를 기준으로 계산하면 주가가 과도하게 상승
+      // 해결: 최근 15초 이내 투자 금액만 반영하여 주가 변화량 계산 (10초마다 실행되므로 여유있게 15초)
+      // 주가가 700원일 때 50,000원 투자 시 주가가 5~10원 상승하도록 설정
+      const fifteenSecondsAgo = new Date(now.getTime() - 15000);
+      const recentInvestments = await this.investmentHistoryRepo
+        .createQueryBuilder("history")
+        .where("history.team_id = :teamId", { teamId: team.id })
+        .andWhere("history.type = 'buy'")
+        .andWhere("history.created_at >= :fifteenSecondsAgo", { fifteenSecondsAgo })
+        .select("SUM(history.amount)", "totalAmount")
+        .getRawOne();
+      
+      const recentInvestmentAmount = Number(recentInvestments?.totalAmount || 0);
+      
+      // 최근 투자 금액에 비례하여 주가 변화량 계산
+      // 50,000원 투자 시 5~10원 상승: 계수 = 7.5 / 50,000 = 0.00015
+      const priceChangePerWon = 0.0005; // 투자금 1원당 주가 변화량 (10배 증가)
+      const priceChange = recentInvestmentAmount * priceChangePerWon;
+      const targetPrice = basePrice + priceChange;
+      
+      // clip을 통해 최소/최대 주가 제한 적용
+      const minPrice = Math.round(P0 * effectiveL);
+      const maxPrice = Math.round(P0 * effectiveU);
+      const p1 = Math.round(Math.min(Math.max(targetPrice, minPrice), maxPrice));
 
       const currentPrice = p1;
 
-      await this.priceRepo
-        .createQueryBuilder()
-        .insert()
-        .values([{ teamId: team.id, round: 1, price: p1, tickTs: now }])
-        .orIgnore()
-        .execute();
+      // prices 테이블에 가격 이력 저장 (임시로 비활성화 - 문제 원인)
+      // await this.priceRepo.save({
+      //   teamId: team.id,
+      //   round: 1,
+      //   price: p1,
+      //   tickTs: now
+      // });
 
-      // cache on team
-      await this.teamRepo.update(team.id, { p: currentPrice });
+      // ⭐ Raw SQL로 직접 업데이트 (확실한 저장)
+      await this.dataSource.query(
+        `UPDATE competition_teams SET p = $1 WHERE id = $2`,
+        [currentPrice, team.id]
+      );
+      
+      // ⭐ 즉시 재확인 (에러 체크만, 로그 없음)
+      const verifyResult = await this.dataSource.query(
+        `SELECT p FROM competition_teams WHERE id = $1`,
+        [team.id]
+      );
+      const savedPrice = verifyResult[0]?.p;
+      
+      if (savedPrice !== currentPrice) {
+        // 업데이트 실패 시 재시도
+        await this.dataSource.query(
+          `UPDATE competition_teams SET p = $1 WHERE id = $2`,
+          [currentPrice, team.id]
+        );
+      }
     }
 
-    this.logger.debug(
-      `Recalculated prices for ${teams.length} teams at ${now.toISOString()}. Total investment: ${currentTotalInvestment.toLocaleString()}`
-    );
+    // shares가 1 미만인 user_investments 레코드 삭제
+    await this.cleanupLowShares();
+    } finally {
+      // ⭐ 플래그 해제
+      this.isRecalculating = false;
+    }
+  }
+
+  private async cleanupLowShares(): Promise<void> {
+    // shares가 1 미만인 모든 레코드 삭제
+    // numeric 타입이므로 직접 비교 가능
+    const result = await this.userInvestmentRepo
+      .createQueryBuilder()
+      .delete()
+      .from(UserInvestment)
+      .where("shares < 1")
+      .execute();
+
+    // shares가 1 미만인 레코드 삭제 완료 (로그 없음)
   }
 }

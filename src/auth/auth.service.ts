@@ -158,10 +158,10 @@ export class AuthService {
       department: dto.department,
       phone_number: dto.phoneNumber,
       password: hashedPassword,
-      capital: 45000, // ✅ 기본 자본금 45,000원 (총 투자 시드 450만원 / 100명)
+      capital: 50000, // ✅ 기본 자본금 50,000원 (총 투자 시드 500만원 / 100명)
       roi: 0,
       rank: 0,
-      total_assets: 45000, // ✅ 초기 총 자산
+      total_assets: 50000, // ✅ 초기 총 자산
       stock_value: 0,
     } as any);
     const saved = await this.userRepo.save(user as any);

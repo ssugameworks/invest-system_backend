@@ -68,13 +68,13 @@ export class InvestService {
         throw new BadRequestException("유효하지 않은 팀입니다.");
       }
 
-      const currentPrice = team.p ?? team.p0 ?? 1000;
+      const currentPrice = team.p ?? 700; // p 기본값 700
       if (currentPrice <= 0) {
         throw new BadRequestException("유효하지 않은 주가입니다.");
       }
 
-      // 전체 팀의 투자금 합계 확인 (총 투자 시드 450만원 제한)
-      const TOTAL_INVESTMENT_SEED = 4500000; // 총 투자 시드 450만원
+      // 전체 팀의 투자금 합계 확인 (총 투자 시드 500만원 제한)
+      const TOTAL_INVESTMENT_SEED = 5000000; // 총 투자 시드 500만원
       const allTeams = await manager.find(CompetitionTeam);
       const currentTotalInvestment = allTeams.reduce(
         (sum, t) => sum + (t.money ?? 0),
@@ -87,14 +87,14 @@ export class InvestService {
       if (currentTotalInvestment + investAmount > TOTAL_INVESTMENT_SEED) {
         if (remainingCapacity <= 0) {
           throw new BadRequestException(
-            `총 투자 시드 450만원에 도달했습니다. 더 이상 투자할 수 없습니다.`
+            `총 투자 시드 500만원에 도달했습니다. 더 이상 투자할 수 없습니다.`
           );
         }
         // 남은 용량만큼만 투자 가능
         investAmount = Math.max(0, remainingCapacity);
         if (investAmount === 0) {
           throw new BadRequestException(
-            `총 투자 시드 450만원에 도달했습니다. 더 이상 투자할 수 없습니다.`
+            `총 투자 시드 500만원에 도달했습니다. 더 이상 투자할 수 없습니다.`
           );
         }
       }
@@ -151,7 +151,7 @@ export class InvestService {
 
       const message = 
         investAmount < body.amount
-          ? `투자가 완료되었습니다. (${shares.toFixed(4)}주 매수, 요청: ${body.amount.toLocaleString()}원, 실제: ${investAmount.toLocaleString()}원 - 총 투자 시드 450만원 제한)`
+          ? `투자가 완료되었습니다. (${shares.toFixed(4)}주 매수, 요청: ${body.amount.toLocaleString()}원, 실제: ${investAmount.toLocaleString()}원 - 총 투자 시드 500만원 제한)`
           : `투자가 완료되었습니다. (${shares.toFixed(4)}주 매수)`;
 
       return {
@@ -193,7 +193,7 @@ export class InvestService {
         throw new BadRequestException("유효하지 않은 팀입니다.");
       }
 
-      const currentPrice = team.p ?? team.p0 ?? 1000;
+      const currentPrice = team.p ?? 700; // p 기본값 700
       if (currentPrice <= 0) {
         throw new BadRequestException("유효하지 않은 주가입니다.");
       }
@@ -227,8 +227,9 @@ export class InvestService {
       );
       investment.invested_amount = Math.round(investment.invested_amount - amountToDeduct);
 
-      if (investment.shares <= 0.0001) {
-        // 보유 주식이 거의 없으면 삭제
+      // shares가 0 이하이거나 매우 작은 값(0.0001 이하)이면 삭제
+      if (investment.shares <= 0.0001 || investment.shares <= 0) {
+        // 보유 주식이 거의 없거나 없으면 삭제
         await manager.remove(UserInvestment, investment);
       } else {
         investment.average_price = Math.round(
@@ -272,20 +273,26 @@ export class InvestService {
 
     // 각 주식의 현재 평가액 계산 (반올림)
     for (const inv of investments) {
+      const shares = Number(inv.shares);
+      // shares가 0 이하이거나 매우 작은 값(0.0001 이하)인 경우 제외
+      if (shares <= 0.0001) {
+        continue;
+      }
+      
       const team = await manager.findOne(CompetitionTeam, {
         where: { id: inv.team_id },
       });
       if (team) {
-        const currentPrice = team.p ?? team.p0 ?? 0;
-        stock_value += Math.round(Number(inv.shares) * currentPrice);
+        const currentPrice = team.p ?? 700; // p 기본값 700
+        stock_value += Math.round(shares * currentPrice);
       }
     }
 
     const user = await manager.findOne(User, { where: { id: userId } });
     if (user) {
-      const INITIAL_CAPITAL = 45000; // 초기 자본 45,000원 (총 투자 시드 450만원 / 100명)
+      const INITIAL_CAPITAL = 50000; // 초기 자본 50,000원 (총 투자 시드 500만원 / 100명)
       const MAX_PROFIT = 70000; // 최대 수익 7만원
-      const MAX_TOTAL_ASSETS = INITIAL_CAPITAL + MAX_PROFIT; // 최대 총 자산 115,000원
+      const MAX_TOTAL_ASSETS = INITIAL_CAPITAL + MAX_PROFIT; // 최대 총 자산 120,000원
       
       let total_assets = Math.round((user.capital ?? 0) + stock_value);
       

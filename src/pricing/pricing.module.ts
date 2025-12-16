@@ -4,9 +4,11 @@ import { PricingService } from "./pricing.service";
 import { PricingController } from "./pricing.controller";
 import { CompetitionTeam } from "../teams/entity/team.entity";
 import { Price } from "../prices/entity/price.entity";
+import { UserInvestment } from "../investments/entity/user-investment.entity";
+import { InvestmentHistory } from "../investments/entity/investment-history.entity";
 
 @Module({
-  imports: [TypeOrmModule.forFeature([CompetitionTeam, Price])],
+  imports: [TypeOrmModule.forFeature([CompetitionTeam, Price, UserInvestment, InvestmentHistory])],
   controllers: [PricingController],
   providers: [PricingService],
   exports: [PricingService],

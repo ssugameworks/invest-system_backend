@@ -40,15 +40,7 @@ export class CompetitionTeam {
   @Column({ type: "integer", nullable: true, default: 0 })
   money!: number | null;
 
-  @Column({ name: "p", type: "integer", nullable: true })
-  p!: number | null;
-
-  @Column({ name: "p0", type: "integer", default: 1000 })
-  p0!: number;
-
-  @Column({ name: "p1", type: "integer", nullable: true })
-  p1!: number | null;
-
-  @Column({ name: "p2", type: "integer", nullable: true })
-  p2!: number | null;
+  // ⭐ 현재 주가 (단순화: p만 사용, 기본값 700)
+  @Column({ name: "p", type: "integer", default: 700, nullable: false })
+  p!: number;
 }
