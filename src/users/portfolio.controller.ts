@@ -108,10 +108,16 @@ export class PortfolioController {
       
       const itemValue = Math.round(shares * currentPrice);
       const profit_loss = itemValue - inv.invested_amount;
+      
+      // ROI 계산: 평균 매수가(average_price) 기준으로 계산
+      // 현재 가격이 평균가보다 높으면 플러스, 낮으면 마이너스
+      const averagePrice = inv.average_price ?? 0;
       const profit_rate =
-        inv.invested_amount > 0
-          ? (profit_loss / inv.invested_amount) * 100
-          : 0;
+        averagePrice > 0
+          ? ((currentPrice - averagePrice) / averagePrice) * 100
+          : (inv.invested_amount > 0
+            ? (profit_loss / inv.invested_amount) * 100
+            : 0);
 
       items.push({
         team_id: inv.team_id,
@@ -239,10 +245,16 @@ export class PortfolioController {
     const shares = Number(investment.shares);
     const current_value = Math.round(shares * currentPrice);
     const profit_loss = current_value - investment.invested_amount;
+    
+    // ROI 계산: 평균 매수가(average_price) 기준으로 계산
+    // 현재 가격이 평균가보다 높으면 플러스, 낮으면 마이너스
+    const averagePrice = investment.average_price ?? 0;
     const profit_rate =
-      investment.invested_amount > 0
-        ? (profit_loss / investment.invested_amount) * 100
-        : 0;
+      averagePrice > 0
+        ? ((currentPrice - averagePrice) / averagePrice) * 100
+        : (investment.invested_amount > 0
+          ? (profit_loss / investment.invested_amount) * 100
+          : 0);
 
     return {
       team_id: teamId,

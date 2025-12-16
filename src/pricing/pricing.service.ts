@@ -163,7 +163,9 @@ export class PricingService implements OnModuleInit {
       // 해결: 최근 15초 이내 투자 금액만 반영하여 주가 변화량 계산 (10초마다 실행되므로 여유있게 15초)
       // 주가가 700원일 때 50,000원 투자 시 주가가 5~10원 상승하도록 설정
       const fifteenSecondsAgo = new Date(now.getTime() - 15000);
-      const recentInvestments = await this.investmentHistoryRepo
+      
+      // 최근 15초 이내 매수 금액 조회
+      const recentBuys = await this.investmentHistoryRepo
         .createQueryBuilder("history")
         .where("history.team_id = :teamId", { teamId: team.id })
         .andWhere("history.type = 'buy'")
@@ -171,13 +173,41 @@ export class PricingService implements OnModuleInit {
         .select("SUM(history.amount)", "totalAmount")
         .getRawOne();
       
-      const recentInvestmentAmount = Number(recentInvestments?.totalAmount || 0);
+      // 최근 15초 이내 매도 금액 조회
+      const recentSells = await this.investmentHistoryRepo
+        .createQueryBuilder("history")
+        .where("history.team_id = :teamId", { teamId: team.id })
+        .andWhere("history.type = 'sell'")
+        .andWhere("history.created_at >= :fifteenSecondsAgo", { fifteenSecondsAgo })
+        .select("SUM(history.amount)", "totalAmount")
+        .getRawOne();
       
-      // 최근 투자 금액에 비례하여 주가 변화량 계산
-      // 50,000원 투자 시 5~10원 상승: 계수 = 7.5 / 50,000 = 0.00015
-      const priceChangePerWon = 0.0001; // 투자금 1원당 주가 변화량 (10배 증가)
-      const priceChange = recentInvestmentAmount * priceChangePerWon;
-      const targetPrice = basePrice + priceChange;
+      const recentBuyAmount = Number(recentBuys?.totalAmount || 0);
+      const recentSellAmount = Number(recentSells?.totalAmount || 0);
+      
+      // 매수와 매도를 반영하여 주가 변화량 계산
+      // 매도는 매수보다 더 강한 영향력을 가짐 (매도 시 주가 하락을 더 명확하게 반영)
+      const buyPriceChangePerWon = 0.0001; // 매수 1원당 주가 상승량
+      const sellPriceChangePerWon = 0.0005; // 매도 1원당 주가 하락량 (매수보다 5배 강함)
+      
+      // 매수로 인한 상승과 매도로 인한 하락을 각각 계산
+      const buyPriceChange = recentBuyAmount * buyPriceChangePerWon;
+      const sellPriceChange = recentSellAmount * sellPriceChangePerWon;
+      
+      // 순 주가 변화량 = 매수 상승 - 매도 하락
+      const priceChange = buyPriceChange - sellPriceChange;
+      
+      // ⭐ 주가 계산 로직 (단순화)
+      // 최근 거래가 있으면 priceChange를 반영, 없으면 주가 유지
+      let targetPrice: number;
+      
+      if (recentBuyAmount === 0 && recentSellAmount === 0) {
+        // 최근 거래가 없으면 주가 유지
+        targetPrice = basePrice;
+      } else {
+        // 매수 또는 매도가 있으면 priceChange 반영 (양수면 상승, 음수면 하락)
+        targetPrice = basePrice + priceChange;
+      }
       
       // clip을 통해 최소/최대 주가 제한 적용
       const minPrice = Math.round(P0 * effectiveL);
