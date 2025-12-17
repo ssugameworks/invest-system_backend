@@ -43,18 +43,18 @@ export class PricingService implements OnModuleInit {
   }
 
   private async initializePrices(): Promise<void> {
-    const INITIAL_PRICE = 700; // ⭐ 초기 주가 700원
+    const INITIAL_PRICE = 1000; // ⭐ 초기 주가 1000원
     
-    // ⭐ 모든 팀의 p를 무조건 700으로 초기화
+    // ⭐ 주가가 null이거나 0인 팀만 초기 주가로 설정 (이미 설정된 주가는 유지)
     await this.dataSource.query(
-      `UPDATE competition_teams SET p = $1`,
+      `UPDATE competition_teams SET p = $1 WHERE p IS NULL OR p = 0`,
       [INITIAL_PRICE]
     );
   }
 
   private async getPricingConfig(): Promise<any> {
-    // ⭐ P0는 항상 700으로 고정
-    const FIXED_P0 = 700;
+    // ⭐ P0는 항상 1000으로 고정
+    const FIXED_P0 = 1000;
     
     // DB에서 가격 설정 읽기, 없으면 환경변수에서 읽기
     try {
@@ -161,7 +161,7 @@ export class PricingService implements OnModuleInit {
       // 주가 계산: 현재 주가를 기준으로 하되, 최근 투자금 변화량만 반영
       // 문제: team.money는 누적 투자금이므로, 전체를 기준으로 계산하면 주가가 과도하게 상승
       // 해결: 최근 15초 이내 투자 금액만 반영하여 주가 변화량 계산 (10초마다 실행되므로 여유있게 15초)
-      // 주가가 700원일 때 50,000원 투자 시 주가가 5~10원 상승하도록 설정
+      // 주가가 1000원일 때 50,000원 투자 시 주가가 5~10원 상승하도록 설정
       const fifteenSecondsAgo = new Date(now.getTime() - 15000);
       
       // 최근 15초 이내 매수 금액 조회
@@ -186,9 +186,9 @@ export class PricingService implements OnModuleInit {
       const recentSellAmount = Number(recentSells?.totalAmount || 0);
       
       // 매수와 매도를 반영하여 주가 변화량 계산
-      // 매도는 매수보다 더 강한 영향력을 가짐 (매도 시 주가 하락을 더 명확하게 반영)
+      // 매수와 매도 동일한 영향력으로 설정
       const buyPriceChangePerWon = 0.0001; // 매수 1원당 주가 상승량
-      const sellPriceChangePerWon = 0.0005; // 매도 1원당 주가 하락량 (매수보다 5배 강함)
+      const sellPriceChangePerWon = 0.0001; // 매도 1원당 주가 하락량 (매수와 동일)
       
       // 매수로 인한 상승과 매도로 인한 하락을 각각 계산
       const buyPriceChange = recentBuyAmount * buyPriceChangePerWon;

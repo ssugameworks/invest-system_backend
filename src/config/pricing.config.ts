@@ -3,7 +3,7 @@ import { registerAs } from "@nestjs/config";
 export default registerAs("pricing", () => {
   const N = Number(process.env.PRICING_N ?? 100);       // 참가자 수: 100명
   const T = Number(process.env.PRICING_T ?? 6);         // 팀 수: 6개
-  const P0 = Number(process.env.PRICING_P0 ?? 700);     // ⭐ 초기 주가: 700원 (변경됨!)
+  const P0 = Number(process.env.PRICING_P0 ?? 1000);     // ⭐ 초기 주가: 1000원
   const C = Number(process.env.PRICING_C ?? 50000);     // 기준 자본: 50,000원 (총 투자 시드 500만원 / 100명)
   const GAMMA = Number(process.env.PRICING_GAMMA ?? 0.2); // 압축 지수: 0.2 (변동성 매우 완만하게 - 주가 민감도 매우 낮춤)
   const L = Number(process.env.PRICING_L ?? 0.6);      // 최소 배수: 0.6 (40% 하락)

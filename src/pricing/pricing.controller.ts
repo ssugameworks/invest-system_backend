@@ -28,7 +28,7 @@ export class PricingController {
     return teams.map(team => ({
       teamId: team.id,
       round: 1,
-      price: team.p ?? 700, // 현재 주가(p), 기본값 700
+      price: team.p ?? 1000, // 현재 주가(p), 기본값 1000
       tickTs: now,
     }));
   }

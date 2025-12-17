@@ -590,5 +590,150 @@ export class DbInternalService {
       };
     }
   }
+
+  async getInvestmentOverview(): Promise<{
+    totalInvestment: number;
+    teamInvestments: Array<{
+      teamId: number;
+      teamName: string;
+      investment: number;
+      percentage: number;
+    }>;
+    totalUsers: number;
+    activeInvestors: number;
+    investmentLimit: number;
+    remainingCapacity: number;
+  }> {
+    const TOTAL_INVESTMENT_LIMIT = 5000000; // 500만원
+
+    // 팀별 투자금 조회
+    const teamQuery = `
+      SELECT 
+        id,
+        "teamName",
+        COALESCE(money, 0) as investment
+      FROM competition_teams
+      ORDER BY id ASC
+    `;
+    const teams = await this.dataSource.query(teamQuery);
+
+    const totalInvestment = teams.reduce(
+      (sum: number, team: any) => sum + Number(team.investment || 0),
+      0
+    );
+
+    const teamInvestments = teams.map((team: any) => ({
+      teamId: team.id,
+      teamName: team.teamName,
+      investment: Number(team.investment || 0),
+      percentage:
+        totalInvestment > 0
+          ? (Number(team.investment || 0) / totalInvestment) * 100
+          : 0,
+    }));
+
+    // 총 사용자 수
+    const userCountQuery = `SELECT COUNT(*) as count FROM users`;
+    const userCountResult = await this.dataSource.query(userCountQuery);
+    const totalUsers = parseInt(userCountResult[0].count, 10);
+
+    // 투자 활동이 있는 사용자 수
+    const activeInvestorQuery = `
+      SELECT COUNT(DISTINCT user_id) as count 
+      FROM user_investments 
+      WHERE invested_amount > 0
+    `;
+    const activeInvestorResult = await this.dataSource.query(
+      activeInvestorQuery
+    );
+    const activeInvestors = parseInt(
+      activeInvestorResult[0]?.count || 0,
+      10
+    );
+
+    return {
+      totalInvestment,
+      teamInvestments,
+      totalUsers,
+      activeInvestors,
+      investmentLimit: TOTAL_INVESTMENT_LIMIT,
+      remainingCapacity: Math.max(0, TOTAL_INVESTMENT_LIMIT - totalInvestment),
+    };
+  }
+
+  async getInvestorRankings(limit: number = 50): Promise<Array<{
+    rank: number;
+    userId: number;
+    userName: string;
+    schoolNumber: number;
+    department: string;
+    capital: number;
+    totalAssets: number;
+    stockValue: number;
+    roi: number;
+    totalInvested: number;
+    totalShares: number;
+    weightedAveragePrice: number;
+    teamCount: number;
+    lastInvestmentTime: string | null;
+  }>> {
+    const query = `
+      SELECT 
+        u.id as "userId",
+        u.name as "userName",
+        u.schoolnumber as "schoolNumber",
+        u.department,
+        COALESCE(u.capital, 0) as capital,
+        COALESCE(u.total_assets, 0) as "totalAssets",
+        COALESCE(u.stock_value, 0) as "stockValue",
+        COALESCE(u.roi, 0) as roi,
+        COALESCE(SUM(ui.invested_amount), 0) as "totalInvested",
+        COALESCE(SUM(ui.shares), 0) as "totalShares",
+        CASE 
+          WHEN SUM(ui.shares) > 0 THEN 
+            SUM(ui.invested_amount) / NULLIF(SUM(ui.shares), 0)
+          ELSE 0
+        END as "weightedAveragePrice",
+        COUNT(DISTINCT ui.team_id) FILTER (WHERE ui.invested_amount > 0) as "teamCount",
+        MAX(ui.updated_at) as "lastInvestmentTime"
+      FROM users u
+      LEFT JOIN user_investments ui ON u.id = ui.user_id
+      GROUP BY u.id, u.name, u.schoolnumber, u.department, u.capital, u.total_assets, u.stock_value, u.roi
+      ORDER BY 
+        COALESCE(u.total_assets, 0) DESC,
+        COALESCE(u.roi, 0) DESC,
+        COALESCE(SUM(ui.invested_amount), 0) DESC,
+        COALESCE(SUM(ui.shares), 0) DESC,
+        CASE 
+          WHEN SUM(ui.shares) > 0 THEN 
+            SUM(ui.invested_amount) / NULLIF(SUM(ui.shares), 0)
+          ELSE 999999999
+        END ASC,
+        MAX(ui.updated_at) DESC NULLS LAST,
+        u.id ASC
+      LIMIT $1
+    `;
+
+    const results = await this.dataSource.query(query, [limit]);
+
+    return results.map((row: any, index: number) => ({
+      rank: index + 1,
+      userId: row.userId,
+      userName: row.userName,
+      schoolNumber: row.schoolNumber,
+      department: row.department,
+      capital: Number(row.capital || 0),
+      totalAssets: Number(row.totalAssets || 0),
+      stockValue: Number(row.stockValue || 0),
+      roi: Number(row.roi || 0),
+      totalInvested: Number(row.totalInvested || 0),
+      totalShares: Number(row.totalShares || 0),
+      weightedAveragePrice: Number(row.weightedAveragePrice || 0),
+      teamCount: Number(row.teamCount || 0),
+      lastInvestmentTime: row.lastInvestmentTime
+        ? new Date(row.lastInvestmentTime).toISOString()
+        : null,
+    }));
+  }
 }
 

@@ -68,7 +68,7 @@ export class InvestService {
         throw new BadRequestException("유효하지 않은 팀입니다.");
       }
 
-      const currentPrice = team.p ?? 700; // p 기본값 700
+      const currentPrice = team.p ?? 1000; // p 기본값 1000
       if (currentPrice <= 0) {
         throw new BadRequestException("유효하지 않은 주가입니다.");
       }
@@ -193,7 +193,7 @@ export class InvestService {
         throw new BadRequestException("유효하지 않은 팀입니다.");
       }
 
-      const currentPrice = team.p ?? 700; // p 기본값 700
+      const currentPrice = team.p ?? 1000; // p 기본값 1000
       if (currentPrice <= 0) {
         throw new BadRequestException("유효하지 않은 주가입니다.");
       }
@@ -283,7 +283,7 @@ export class InvestService {
         where: { id: inv.team_id },
       });
       if (team) {
-        const currentPrice = team.p ?? 700; // p 기본값 700
+        const currentPrice = team.p ?? 1000; // p 기본값 1000
         stock_value += Math.round(shares * currentPrice);
       }
     }

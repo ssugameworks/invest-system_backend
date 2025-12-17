@@ -98,7 +98,7 @@ export class PortfolioController {
       const team = await this.teamRepo.findOne({ where: { id: inv.team_id } });
       if (!team) continue;
 
-      const currentPrice = team.p ?? 700; // p 기본값 700
+      const currentPrice = team.p ?? 1000; // p 기본값 1000
       const shares = Number(inv.shares);
       
       // shares가 0 이하이거나 매우 작은 값(0.0001 이하)인 경우 포트폴리오에서 제외
@@ -209,19 +209,24 @@ export class PortfolioController {
     });
 
     if (!investment) {
-      // 투자 내역이 없으면 0 반환
+      // 투자 내역이 없으면 초기 주가 1000원 기준으로 ROI 계산
       const team = await this.teamRepo.findOne({ where: { id: teamId } });
+      const currentPrice = team?.p ?? 1000; // p 기본값 1000
+      const INITIAL_PRICE = 1000;
+      // 초기 주가 대비 현재 주가 변동률 계산
+      const profit_rate = ((currentPrice - INITIAL_PRICE) / INITIAL_PRICE) * 100;
+      
       return {
         team_id: teamId,
         team_name: team?.teamName || "Unknown",
         shares: 0,
         invested_amount: 0,
         average_price: 0,
-        current_price: team?.p ?? 700, // p 기본값 700
+        current_price: currentPrice,
         current_value: 0,
         amount: 0, // 매도 시 사용
         profit_loss: 0,
-        profit_rate: 0,
+        profit_rate,
       };
     }
 
@@ -241,7 +246,7 @@ export class PortfolioController {
       };
     }
 
-    const currentPrice = team.p ?? 700; // p 기본값 700
+    const currentPrice = team.p ?? 1000; // p 기본값 1000
     const shares = Number(investment.shares);
     const current_value = Math.round(shares * currentPrice);
     const profit_loss = current_value - investment.invested_amount;
@@ -249,12 +254,19 @@ export class PortfolioController {
     // ROI 계산: 평균 매수가(average_price) 기준으로 계산
     // 현재 가격이 평균가보다 높으면 플러스, 낮으면 마이너스
     const averagePrice = investment.average_price ?? 0;
-    const profit_rate =
-      averagePrice > 0
-        ? ((currentPrice - averagePrice) / averagePrice) * 100
-        : (investment.invested_amount > 0
-          ? (profit_loss / investment.invested_amount) * 100
-          : 0);
+    let profit_rate = 0;
+    
+    if (averagePrice > 0) {
+      // 평균 매수가가 있으면 평균가 기준으로 계산
+      profit_rate = ((currentPrice - averagePrice) / averagePrice) * 100;
+    } else if (investment.invested_amount > 0 && shares > 0) {
+      // 평균 매수가가 없지만 투자 금액이 있으면 손익 기준으로 계산
+      profit_rate = (profit_loss / investment.invested_amount) * 100;
+    } else {
+      // 투자 내역이 없거나 초기 상태면 초기 주가 1000원 기준으로 계산
+      const INITIAL_PRICE = 1000;
+      profit_rate = ((currentPrice - INITIAL_PRICE) / INITIAL_PRICE) * 100;
+    }
 
     return {
       team_id: teamId,

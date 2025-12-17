@@ -1,9 +1,11 @@
-import { Controller, Get, Param, ParseIntPipe, Query, NotFoundException } from "@nestjs/common";
-import { ApiOkResponse, ApiOperation, ApiParam, ApiTags } from "@nestjs/swagger";
+import { Controller, Get, Param, ParseIntPipe, Query, NotFoundException, Res, Patch, Body, Post } from "@nestjs/common";
+import { ApiOkResponse, ApiOperation, ApiParam, ApiTags, ApiBody } from "@nestjs/swagger";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository, MoreThan } from "typeorm";
-import { CompetitionTeam } from "./entity/team.entity";
+import { CompetitionTeam, TeamStatus } from "./entity/team.entity";
 import { Price } from "../prices/entity/price.entity";
+import type { Response } from "express";
+import axios from "axios";
 
 class PriceHistoryDto {
   price!: number;
@@ -32,6 +34,20 @@ export class TeamController {
     });
   }
 
+  @Get("ongoing")
+  @ApiOperation({ summary: "현재 발표 중인 팀 조회" })
+  @ApiOkResponse({
+    description: "발표 중인 팀",
+    type: CompetitionTeam,
+  })
+  async getOngoingTeam(): Promise<CompetitionTeam | null> {
+    const team = await this.teamRepo.findOne({
+      where: { status: "ongoing" },
+      order: { updated_at: "DESC" },
+    });
+    return team;
+  }
+
   @Get(":id")
   @ApiOperation({ summary: "특정 팀 정보 조회" })
   @ApiParam({ name: "id", type: Number, example: 1 })
@@ -45,6 +61,34 @@ export class TeamController {
       throw new NotFoundException("팀을 찾을 수 없습니다.");
     }
     return team;
+  }
+
+  @Get(":id/pitch")
+  @ApiOperation({ summary: "특정 팀 피치 자료 PDF 프록시" })
+  @ApiParam({ name: "id", type: Number, example: 1 })
+  async getTeamPitch(
+    @Param("id", ParseIntPipe) id: number,
+    @Res() res: Response,
+  ): Promise<void> {
+    const team = await this.teamRepo.findOne({ where: { id } });
+    if (!team || !team.pitch_url) {
+      throw new NotFoundException("피치 자료가 없습니다.");
+    }
+
+    try {
+      const upstream = await axios.get(team.pitch_url, {
+        responseType: "stream",
+      });
+
+      res.setHeader("Content-Type", upstream.headers["content-type"] || "application/pdf");
+      if (upstream.headers["content-length"]) {
+        res.setHeader("Content-Length", upstream.headers["content-length"]);
+      }
+
+      upstream.data.pipe(res);
+    } catch (error) {
+      throw new NotFoundException("피치 자료를 불러오는 데 실패했습니다.");
+    }
   }
 
   @Get(":id/price-history")
@@ -98,6 +142,98 @@ export class TeamController {
     }
 
     return result;
+  }
+
+  @Patch(":id/status")
+  @ApiOperation({ summary: "팀 상태 업데이트 (인터널용)" })
+  @ApiParam({ name: "id", type: Number, example: 1 })
+  @ApiBody({
+    schema: {
+      type: "object",
+      properties: {
+        status: {
+          type: "string",
+          enum: ["upcoming", "ongoing", "ended"],
+        },
+      },
+    },
+  })
+  @ApiOkResponse({
+    description: "업데이트된 팀 정보",
+    type: CompetitionTeam,
+  })
+  async updateTeamStatus(
+    @Param("id", ParseIntPipe) id: number,
+    @Body("status") status: TeamStatus
+  ): Promise<CompetitionTeam> {
+    const team = await this.teamRepo.findOne({ where: { id } });
+    if (!team) {
+      throw new NotFoundException("팀을 찾을 수 없습니다.");
+    }
+
+    // ongoing으로 변경할 때, 다른 팀들의 상태를 ended로 변경
+    if (status === "ongoing") {
+      await this.teamRepo.update(
+        { status: "ongoing" },
+        { status: "ended" }
+      );
+    }
+
+    team.status = status;
+    return await this.teamRepo.save(team);
+  }
+
+  @Get(":id/current-slide")
+  @ApiOperation({ summary: "현재 슬라이드 번호 조회" })
+  @ApiParam({ name: "id", type: Number, example: 1 })
+  @ApiOkResponse({
+    description: "현재 슬라이드 번호",
+    schema: {
+      type: "object",
+      properties: {
+        currentSlide: { type: "number" },
+      },
+    },
+  })
+  async getCurrentSlide(@Param("id", ParseIntPipe) id: number): Promise<{ currentSlide: number }> {
+    const team = await this.teamRepo.findOne({ where: { id } });
+    if (!team) {
+      throw new NotFoundException("팀을 찾을 수 없습니다.");
+    }
+    return { currentSlide: team.currentSlide || 1 };
+  }
+
+  @Post(":id/current-slide")
+  @ApiOperation({ summary: "현재 슬라이드 번호 업데이트 (인터널용)" })
+  @ApiParam({ name: "id", type: Number, example: 1 })
+  @ApiBody({
+    schema: {
+      type: "object",
+      properties: {
+        currentSlide: { type: "number" },
+      },
+    },
+  })
+  @ApiOkResponse({
+    description: "업데이트된 슬라이드 번호",
+    schema: {
+      type: "object",
+      properties: {
+        currentSlide: { type: "number" },
+      },
+    },
+  })
+  async updateCurrentSlide(
+    @Param("id", ParseIntPipe) id: number,
+    @Body("currentSlide") currentSlide: number
+  ): Promise<{ currentSlide: number }> {
+    const team = await this.teamRepo.findOne({ where: { id } });
+    if (!team) {
+      throw new NotFoundException("팀을 찾을 수 없습니다.");
+    }
+    team.currentSlide = currentSlide;
+    await this.teamRepo.save(team);
+    return { currentSlide };
   }
 }
 

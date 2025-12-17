@@ -40,7 +40,11 @@ export class CompetitionTeam {
   @Column({ type: "integer", nullable: true, default: 0 })
   money!: number | null;
 
-  // ⭐ 현재 주가 (단순화: p만 사용, 기본값 700)
-  @Column({ name: "p", type: "integer", default: 700, nullable: false })
+  // ⭐ 현재 주가 (단순화: p만 사용, 기본값 1000)
+  @Column({ name: "p", type: "integer", default: 1000, nullable: false })
   p!: number;
+
+  // 현재 슬라이드 번호 (인터널에서 조종)
+  @Column({ type: "integer", nullable: true, default: 1 })
+  currentSlide!: number | null;
 }

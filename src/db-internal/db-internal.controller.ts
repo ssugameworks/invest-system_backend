@@ -14,19 +14,25 @@ import {
   Res,
   Req,
   UnauthorizedException,
+  NotFoundException,
 } from "@nestjs/common";
 import { ApiTags, ApiOperation, ApiQuery, ApiBearerAuth, ApiBody } from "@nestjs/swagger";
 import { Response, Request } from "express";
 import { DbInternalService } from "./db-internal.service";
 import { AdminGuard } from "../guards/admin.guard";
 import { PricingService } from "../pricing/pricing.service";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository } from "typeorm";
+import { CompetitionTeam, TeamStatus } from "../teams/entity/team.entity";
 
 @ApiTags("DB Internal")
 @Controller("db-internal")
 export class DbInternalController {
   constructor(
     private readonly dbInternalService: DbInternalService,
-    private readonly pricingService: PricingService
+    private readonly pricingService: PricingService,
+    @InjectRepository(CompetitionTeam)
+    private readonly teamRepo: Repository<CompetitionTeam>
   ) {}
 
   @Get()
@@ -235,6 +241,109 @@ export class DbInternalController {
       const errorMessage = error instanceof Error ? error.message : String(error);
       throw new Error('Failed to recalculate prices: ' + errorMessage);
     }
+  }
+
+  @Get("api/teams")
+  @UseGuards(AdminGuard)
+  @ApiBearerAuth("bearer")
+  @ApiOperation({ summary: "Get all teams" })
+  async getTeams() {
+    const teams = await this.teamRepo.find({
+      order: { id: "ASC" },
+    });
+    return teams;
+  }
+
+  @Get("api/teams/ongoing")
+  @UseGuards(AdminGuard)
+  @ApiBearerAuth("bearer")
+  @ApiOperation({ summary: "Get ongoing team" })
+  async getOngoingTeam() {
+    const team = await this.teamRepo.findOne({
+      where: { status: "ongoing" },
+      order: { updated_at: "DESC" },
+    });
+    return team;
+  }
+
+  @Patch("api/teams/:teamId/status")
+  @UseGuards(AdminGuard)
+  @ApiBearerAuth("bearer")
+  @ApiOperation({ summary: "Update team status" })
+  @ApiBody({ schema: { type: 'object', properties: {
+    status: { type: 'string', enum: ['upcoming', 'ongoing', 'ended'] }
+  }, required: ['status'] }})
+  async updateTeamStatus(
+    @Param("teamId", ParseIntPipe) teamId: number,
+    @Body("status") status: TeamStatus
+  ) {
+    const team = await this.teamRepo.findOne({ where: { id: teamId } });
+    if (!team) {
+      throw new NotFoundException("팀을 찾을 수 없습니다.");
+    }
+
+    // ongoing으로 변경할 때, 다른 팀들의 상태를 ended로 변경
+    if (status === "ongoing") {
+      await this.teamRepo.update(
+        { status: "ongoing" },
+        { status: "ended" }
+      );
+    }
+
+    team.status = status;
+    await this.teamRepo.save(team);
+    return { success: true, team };
+  }
+
+  @Get("api/teams/:teamId/current-slide")
+  @UseGuards(AdminGuard)
+  @ApiBearerAuth("bearer")
+  @ApiOperation({ summary: "Get current slide number" })
+  async getCurrentSlide(@Param("teamId", ParseIntPipe) teamId: number) {
+    const team = await this.teamRepo.findOne({ where: { id: teamId } });
+    if (!team) {
+      throw new NotFoundException("팀을 찾을 수 없습니다.");
+    }
+    return { currentSlide: team.currentSlide || 1 };
+  }
+
+  @Get("api/investment/overview")
+  @UseGuards(AdminGuard)
+  @ApiBearerAuth("bearer")
+  @ApiOperation({ summary: "Get investment overview" })
+  async getInvestmentOverview() {
+    return await this.dbInternalService.getInvestmentOverview();
+  }
+
+  @Get("api/investors/rankings")
+  @UseGuards(AdminGuard)
+  @ApiBearerAuth("bearer")
+  @ApiOperation({ summary: "Get investor rankings" })
+  @ApiQuery({ name: "limit", required: false, type: Number })
+  async getInvestorRankings(
+    @Query("limit", new DefaultValuePipe(50), ParseIntPipe) limit: number
+  ) {
+    return await this.dbInternalService.getInvestorRankings(limit);
+  }
+
+  @Post("api/teams/:teamId/current-slide")
+  @UseGuards(AdminGuard)
+  @ApiBearerAuth("bearer")
+  @ApiOperation({ summary: "Update current slide number" })
+  @ApiBody({ schema: { type: 'object', properties: {
+    currentSlide: { type: 'number' }
+  }, required: ['currentSlide'] }})
+  async updateCurrentSlide(
+    @Param("teamId", ParseIntPipe) teamId: number,
+    @Body("currentSlide") currentSlide: number
+  ) {
+    const team = await this.teamRepo.findOne({ where: { id: teamId } });
+    if (!team) {
+      throw new NotFoundException("팀을 찾을 수 없습니다.");
+    }
+    team.currentSlide = currentSlide;
+    await this.teamRepo.save(team);
+    return { success: true, currentSlide };
   }
 
   private getHtmlPage(): string {
@@ -458,6 +567,171 @@ export class DbInternalController {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+
+        <!-- 투자금 현황 섹션 -->
+        <div class="bg-white rounded-lg shadow p-6 mb-6">
+          <div class="flex justify-between items-center mb-4">
+            <h2 class="text-xl font-semibold">투자금 현황</h2>
+            <button
+              onclick="loadInvestmentOverview()"
+              class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
+            >
+              새로고침
+            </button>
+          </div>
+          
+          <!-- 전체 투자금 요약 -->
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div class="p-4 bg-blue-50 rounded-lg border border-blue-200">
+              <p class="text-sm text-gray-600 mb-1">총 투자금</p>
+              <p id="total-investment" class="text-2xl font-bold text-blue-600">-</p>
+            </div>
+            <div class="p-4 bg-green-50 rounded-lg border border-green-200">
+              <p class="text-sm text-gray-600 mb-1">투자 한도</p>
+              <p id="investment-limit" class="text-2xl font-bold text-green-600">-</p>
+            </div>
+            <div class="p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+              <p class="text-sm text-gray-600 mb-1">남은 용량</p>
+              <p id="remaining-capacity" class="text-2xl font-bold text-yellow-600">-</p>
+            </div>
+            <div class="p-4 bg-purple-50 rounded-lg border border-purple-200">
+              <p class="text-sm text-gray-600 mb-1">활성 투자자</p>
+              <p id="active-investors" class="text-2xl font-bold text-purple-600">-</p>
+              <p class="text-xs text-gray-500 mt-1">전체: <span id="total-users">-</span>명</p>
+            </div>
+          </div>
+
+          <!-- 팀별 투자금 분포 -->
+          <div>
+            <h3 class="text-lg font-semibold mb-3">팀별 투자금 분포</h3>
+            <div id="team-investments" class="space-y-3">
+              <div class="p-4 text-center text-gray-500">로딩 중...</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 개인 투자자 순위 섹션 -->
+        <div class="bg-white rounded-lg shadow p-6 mb-6">
+          <div class="flex justify-between items-center mb-4">
+            <div>
+              <h2 class="text-xl font-semibold">개인 투자자 순위</h2>
+              <p class="text-xs text-gray-500 mt-1">
+                순위 기준: 총 자산 → 수익률 → 총 투자금 → 보유 주식 수 → 평균 매수가 → 최근 투자 시간
+              </p>
+            </div>
+            <div class="flex items-center gap-2">
+              <input
+                type="number"
+                id="ranking-limit"
+                value="50"
+                min="10"
+                max="200"
+                class="w-20 px-3 py-2 border border-gray-300 rounded-md text-center"
+              />
+              <button
+                onclick="toggleDetailColumns()"
+                id="toggle-detail-btn"
+                class="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors"
+              >
+                세부 지표 보기
+              </button>
+              <button
+                onclick="loadInvestorRankings()"
+                class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
+              >
+                조회
+              </button>
+            </div>
+          </div>
+          
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="bg-gray-50">
+                <tr>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-700">순위</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-700">이름</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-700">학번</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-700">학과</th>
+                  <th class="px-4 py-3 text-right text-xs font-medium text-gray-700">보유 현금</th>
+                  <th class="px-4 py-3 text-right text-xs font-medium text-gray-700">주식 평가액</th>
+                  <th class="px-4 py-3 text-right text-xs font-medium text-gray-700">총 자산</th>
+                  <th class="px-4 py-3 text-right text-xs font-medium text-gray-700">총 투자금</th>
+                  <th class="px-4 py-3 text-right text-xs font-medium text-gray-700">수익률</th>
+                  <th class="px-4 py-3 text-right text-xs font-medium text-gray-700 detail-column hidden">보유 주식 수</th>
+                  <th class="px-4 py-3 text-right text-xs font-medium text-gray-700 detail-column hidden">평균 매수가</th>
+                  <th class="px-4 py-3 text-right text-xs font-medium text-gray-700 detail-column hidden">투자 팀 수</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-700 detail-column hidden">최근 투자</th>
+                </tr>
+              </thead>
+              <tbody id="investor-rankings-table" class="divide-y divide-gray-200">
+                <tr>
+                  <td colspan="9" class="px-4 py-8 text-center text-gray-500">로딩 중...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 팀 상태 관리 및 슬라이드 조종 섹션 -->
+        <div class="bg-white rounded-lg shadow p-6 mb-6">
+          <h2 class="text-xl font-semibold mb-4">팀 상태 관리 및 슬라이드 조종</h2>
+          
+          <!-- 발표 중인 팀 슬라이드 조종 -->
+          <div id="ongoing-team-section" class="mb-6 p-4 bg-red-50 rounded-lg border border-red-200 hidden">
+            <h3 class="text-lg font-semibold mb-3 text-red-900">발표 중인 팀: <span id="ongoing-team-name">-</span></h3>
+            <div class="flex items-center gap-4">
+              <div class="flex items-center gap-2">
+                <button
+                  onclick="changeSlide(-1)"
+                  class="px-4 py-2 rounded-lg bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  이전
+                </button>
+                <div class="flex items-center gap-2">
+                  <input
+                    type="number"
+                    id="slide-input"
+                    min="1"
+                    class="w-20 px-3 py-2 border border-gray-300 rounded-lg text-center"
+                    onkeypress="if(event.key==='Enter') changeSlideToInput()"
+                  />
+                  <button
+                    onclick="changeSlideToInput()"
+                    class="px-4 py-2 rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition-colors"
+                  >
+                    이동
+                  </button>
+                </div>
+                <button
+                  onclick="changeSlide(1)"
+                  class="px-4 py-2 rounded-lg bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  다음
+                </button>
+              </div>
+              <span class="text-sm text-gray-600">현재 슬라이드: <span id="current-slide-display">1</span></span>
+            </div>
+          </div>
+
+          <!-- 팀 목록 및 상태 관리 -->
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="bg-gray-50">
+                <tr>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-700">ID</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-700">팀명</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-700">현재 상태</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-700">상태 변경</th>
+                </tr>
+              </thead>
+              <tbody id="teams-status-table" class="divide-y divide-gray-200">
+                <tr>
+                  <td colspan="4" class="px-4 py-8 text-center text-gray-500">로딩 중...</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
 
@@ -1357,12 +1631,344 @@ export class DbInternalController {
       }
     }
 
+    // 팀 상태 관리 관련 변수
+    let ongoingTeam = null;
+    let currentSlide = 1;
+
+    // 팀 목록 로드
+    async function loadTeamsStatus() {
+      try {
+        const teams = await apiRequest('/teams');
+        const tbody = document.getElementById('teams-status-table');
+        
+        if (teams.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="4" class="px-4 py-8 text-center text-gray-500">팀이 없습니다.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = teams.map(team => {
+          const statusClass = team.status === 'ongoing' 
+            ? 'bg-red-500/20 text-red-700 border-red-500/30'
+            : team.status === 'ended'
+            ? 'bg-gray-500/20 text-gray-700 border-gray-500/30'
+            : 'bg-blue-500/20 text-blue-700 border-blue-500/30';
+          
+          const statusText = team.status === 'ongoing' ? '발표 중' 
+            : team.status === 'ended' ? '종료' 
+            : '예정';
+
+          return \`
+            <tr class="hover:bg-gray-50">
+              <td class="px-4 py-3 text-gray-900">\${team.id}</td>
+              <td class="px-4 py-3 font-medium text-gray-900">\${team.teamName}</td>
+              <td class="px-4 py-3">
+                <span class="px-3 py-1 rounded-full text-xs font-semibold border \${statusClass}">
+                  \${statusText}
+                </span>
+              </td>
+              <td class="px-4 py-3">
+                <div class="flex gap-2">
+                  <button
+                    onclick="updateTeamStatus(\${team.id}, 'upcoming')"
+                    \${team.status === 'upcoming' ? 'disabled' : ''}
+                    class="px-3 py-1.5 rounded-lg text-xs font-medium transition-all \${team.status === 'upcoming' ? 'bg-blue-500/30 text-blue-300 border border-blue-500/50 cursor-not-allowed' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}"
+                  >
+                    예정
+                  </button>
+                  <button
+                    onclick="updateTeamStatus(\${team.id}, 'ongoing')"
+                    \${team.status === 'ongoing' ? 'disabled' : ''}
+                    class="px-3 py-1.5 rounded-lg text-xs font-medium transition-all \${team.status === 'ongoing' ? 'bg-red-500/30 text-red-300 border border-red-500/50 cursor-not-allowed' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}"
+                  >
+                    발표 중
+                  </button>
+                  <button
+                    onclick="updateTeamStatus(\${team.id}, 'ended')"
+                    \${team.status === 'ended' ? 'disabled' : ''}
+                    class="px-3 py-1.5 rounded-lg text-xs font-medium transition-all \${team.status === 'ended' ? 'bg-gray-500/30 text-gray-300 border border-gray-500/50 cursor-not-allowed' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}"
+                  >
+                    종료
+                  </button>
+                </div>
+              </td>
+            </tr>
+          \`;
+        }).join('');
+
+        // 발표 중인 팀 확인
+        const ongoing = teams.find(t => t.status === 'ongoing');
+        if (ongoing) {
+          ongoingTeam = ongoing;
+          await loadCurrentSlide(ongoing.id);
+          document.getElementById('ongoing-team-section').classList.remove('hidden');
+          document.getElementById('ongoing-team-name').textContent = ongoing.teamName;
+        } else {
+          ongoingTeam = null;
+          document.getElementById('ongoing-team-section').classList.add('hidden');
+        }
+      } catch (error) {
+        console.error('Failed to load teams:', error);
+        document.getElementById('teams-status-table').innerHTML = 
+          '<tr><td colspan="4" class="px-4 py-8 text-center text-red-500">팀 목록을 불러오는데 실패했습니다.</td></tr>';
+      }
+    }
+
+    async function loadCurrentSlide(teamId) {
+      try {
+        const data = await apiRequest('/teams/' + teamId + '/current-slide');
+        currentSlide = data.currentSlide || 1;
+        document.getElementById('current-slide-display').textContent = currentSlide;
+        document.getElementById('slide-input').value = currentSlide;
+      } catch (error) {
+        console.error('Failed to load current slide:', error);
+        currentSlide = 1;
+      }
+    }
+
+    async function updateTeamStatus(teamId, newStatus) {
+      if (!confirm('팀 상태를 변경하시겠습니까?')) {
+        return;
+      }
+
+      try {
+        await apiRequest('/teams/' + teamId + '/status', {
+          method: 'PATCH',
+          body: JSON.stringify({ status: newStatus })
+        });
+        
+        // BroadcastChannel을 통해 변경 알림
+        try {
+          const channel = new BroadcastChannel('db-internal-updates');
+          channel.postMessage({ type: 'status-changed', teamId, status: newStatus });
+          channel.close();
+        } catch (e) {
+          // BroadcastChannel이 지원되지 않는 경우 무시
+        }
+        
+        alert('상태가 변경되었습니다.');
+        await loadTeamsStatus();
+      } catch (error) {
+        alert('상태 변경에 실패했습니다: ' + error.message);
+      }
+    }
+
+    async function changeSlide(delta) {
+      if (!ongoingTeam) return;
+      
+      const newSlide = Math.max(1, currentSlide + delta);
+      await updateSlide(newSlide);
+    }
+
+    async function changeSlideToInput() {
+      if (!ongoingTeam) return;
+      
+      const input = document.getElementById('slide-input');
+      const newSlide = parseInt(input.value, 10);
+      
+      if (isNaN(newSlide) || newSlide < 1) {
+        alert('올바른 슬라이드 번호를 입력하세요.');
+        return;
+      }
+      
+      await updateSlide(newSlide);
+    }
+
+    async function updateSlide(newSlide) {
+      if (!ongoingTeam) return;
+      
+      try {
+        await apiRequest('/teams/' + ongoingTeam.id + '/current-slide', {
+          method: 'POST',
+          body: JSON.stringify({ currentSlide: newSlide })
+        });
+        
+        // BroadcastChannel을 통해 변경 알림
+        try {
+          const channel = new BroadcastChannel('db-internal-updates');
+          channel.postMessage({ type: 'slide-changed', teamId: ongoingTeam.id, currentSlide: newSlide });
+          channel.close();
+        } catch (e) {
+          // BroadcastChannel이 지원되지 않는 경우 무시
+        }
+        
+        currentSlide = newSlide;
+        document.getElementById('current-slide-display').textContent = currentSlide;
+        document.getElementById('slide-input').value = currentSlide;
+      } catch (error) {
+        alert('슬라이드 변경에 실패했습니다: ' + error.message);
+      }
+    }
+
+    // 투자금 현황 로드
+    async function loadInvestmentOverview() {
+      try {
+        const overview = await apiRequest('/investment/overview');
+        
+        // 전체 투자금 요약
+        document.getElementById('total-investment').textContent = 
+          overview.totalInvestment.toLocaleString() + '원';
+        document.getElementById('investment-limit').textContent = 
+          overview.investmentLimit.toLocaleString() + '원';
+        document.getElementById('remaining-capacity').textContent = 
+          overview.remainingCapacity.toLocaleString() + '원';
+        document.getElementById('active-investors').textContent = 
+          overview.activeInvestors + '명';
+        document.getElementById('total-users').textContent = 
+          overview.totalUsers;
+
+        // 남은 용량 색상 변경
+        const remainingEl = document.getElementById('remaining-capacity');
+        if (overview.remainingCapacity < 500000) {
+          remainingEl.classList.remove('text-yellow-600');
+          remainingEl.classList.add('text-red-600');
+        } else {
+          remainingEl.classList.remove('text-red-600');
+          remainingEl.classList.add('text-yellow-600');
+        }
+
+        // 팀별 투자금 분포
+        const container = document.getElementById('team-investments');
+        if (overview.teamInvestments.length === 0) {
+          container.innerHTML = '<div class="p-4 text-center text-gray-500">투자 데이터가 없습니다.</div>';
+          return;
+        }
+
+        container.innerHTML = overview.teamInvestments.map(team => {
+          const percentage = team.percentage.toFixed(1);
+          return \`
+            <div class="p-4 bg-gray-50 rounded-lg border border-gray-200">
+              <div class="flex justify-between items-center mb-2">
+                <div class="flex items-center gap-3">
+                  <span class="font-semibold text-gray-900">\${team.teamName}</span>
+                  <span class="text-xs text-gray-500">(ID: \${team.teamId})</span>
+                </div>
+                <div class="text-right">
+                  <p class="text-lg font-bold text-blue-600">\${team.investment.toLocaleString()}원</p>
+                  <p class="text-xs text-gray-500">\${percentage}%</p>
+                </div>
+              </div>
+              <div class="w-full bg-gray-200 rounded-full h-3">
+                <div 
+                  class="bg-blue-500 h-3 rounded-full transition-all duration-300"
+                  style="width: \${percentage}%"
+                ></div>
+              </div>
+            </div>
+          \`;
+        }).join('');
+      } catch (error) {
+        console.error('Failed to load investment overview:', error);
+        document.getElementById('team-investments').innerHTML = 
+          '<div class="p-4 text-center text-red-500">투자금 현황을 불러오는데 실패했습니다.</div>';
+      }
+    }
+
+    // 세부 지표 컬럼 토글
+    let showDetailColumns = false;
+    function toggleDetailColumns() {
+      showDetailColumns = !showDetailColumns;
+      const columns = document.querySelectorAll('.detail-column');
+      const btn = document.getElementById('toggle-detail-btn');
+      
+      if (showDetailColumns) {
+        columns.forEach(col => col.classList.remove('hidden'));
+        btn.textContent = '세부 지표 숨기기';
+        btn.classList.remove('bg-gray-500');
+        btn.classList.add('bg-green-500');
+      } else {
+        columns.forEach(col => col.classList.add('hidden'));
+        btn.textContent = '세부 지표 보기';
+        btn.classList.remove('bg-green-500');
+        btn.classList.add('bg-gray-500');
+      }
+    }
+
+    // 개인 투자자 순위 로드
+    async function loadInvestorRankings() {
+      try {
+        const limit = parseInt(document.getElementById('ranking-limit').value, 10) || 50;
+        const rankings = await apiRequest('/investors/rankings?limit=' + limit);
+        
+        const tbody = document.getElementById('investor-rankings-table');
+        
+        if (rankings.length === 0) {
+          const colspan = showDetailColumns ? 13 : 9;
+          tbody.innerHTML = \`<tr><td colspan="\${colspan}" class="px-4 py-8 text-center text-gray-500">투자자 데이터가 없습니다.</td></tr>\`;
+          return;
+        }
+
+        tbody.innerHTML = rankings.map(investor => {
+          const roiClass = investor.roi >= 0 ? 'text-green-600' : 'text-red-600';
+          const roiSign = investor.roi >= 0 ? '+' : '';
+          
+          // 최근 투자 시간 포맷팅
+          let lastInvestmentDisplay = '-';
+          if (investor.lastInvestmentTime) {
+            const date = new Date(investor.lastInvestmentTime);
+            const now = new Date();
+            const diffMs = now - date;
+            const diffMins = Math.floor(diffMs / 60000);
+            const diffHours = Math.floor(diffMs / 3600000);
+            const diffDays = Math.floor(diffMs / 86400000);
+            
+            if (diffMins < 1) {
+              lastInvestmentDisplay = '방금 전';
+            } else if (diffMins < 60) {
+              lastInvestmentDisplay = diffMins + '분 전';
+            } else if (diffHours < 24) {
+              lastInvestmentDisplay = diffHours + '시간 전';
+            } else if (diffDays < 7) {
+              lastInvestmentDisplay = diffDays + '일 전';
+            } else {
+              lastInvestmentDisplay = date.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' });
+            }
+          }
+          
+          const detailColumns = showDetailColumns ? \`
+            <td class="px-4 py-3 text-right text-gray-600">\${investor.totalShares.toFixed(2)}주</td>
+            <td class="px-4 py-3 text-right text-gray-600">\${investor.weightedAveragePrice > 0 ? investor.weightedAveragePrice.toLocaleString() + '원' : '-'}</td>
+            <td class="px-4 py-3 text-right text-gray-600">\${investor.teamCount}팀</td>
+            <td class="px-4 py-3 text-left text-gray-600">\${lastInvestmentDisplay}</td>
+          \` : '';
+          
+          return \`
+            <tr class="hover:bg-gray-50">
+              <td class="px-4 py-3">
+                <span class="inline-flex items-center justify-center w-8 h-8 rounded-full \${investor.rank <= 3 ? 'bg-yellow-100 text-yellow-800 font-bold' : 'bg-gray-100 text-gray-700'}">
+                  \${investor.rank}
+                </span>
+              </td>
+              <td class="px-4 py-3 font-medium text-gray-900">\${investor.userName}</td>
+              <td class="px-4 py-3 text-gray-600">\${investor.schoolNumber}</td>
+              <td class="px-4 py-3 text-gray-600">\${investor.department}</td>
+              <td class="px-4 py-3 text-right text-gray-900">\${investor.capital.toLocaleString()}원</td>
+              <td class="px-4 py-3 text-right text-gray-900">\${investor.stockValue.toLocaleString()}원</td>
+              <td class="px-4 py-3 text-right font-semibold text-blue-600">\${investor.totalAssets.toLocaleString()}원</td>
+              <td class="px-4 py-3 text-right text-gray-600">\${investor.totalInvested.toLocaleString()}원</td>
+              <td class="px-4 py-3 text-right font-semibold \${roiClass}">
+                \${roiSign}\${investor.roi.toFixed(2)}%
+              </td>
+              \${detailColumns}
+            </tr>
+          \`;
+        }).join('');
+      } catch (error) {
+        console.error('Failed to load investor rankings:', error);
+        const colspan = showDetailColumns ? 13 : 9;
+        document.getElementById('investor-rankings-table').innerHTML = 
+          \`<tr><td colspan="\${colspan}" class="px-4 py-8 text-center text-red-500">투자자 순위를 불러오는데 실패했습니다.</td></tr>\`;
+      }
+    }
+
     // 초기화
     if (adminToken) {
       showMainScreen();
       loadData();
       loadPricingConfig();
       loadTeamsForPriceEditor();
+      loadTeamsStatus();
+      loadInvestmentOverview();
+      loadInvestorRankings();
       // 투자 시드 정보 주기적 업데이트 (10초마다)
       setInterval(async () => {
         try {
@@ -1372,6 +1978,30 @@ export class DbInternalController {
           console.error('Failed to update investment seed info:', error);
         }
       }, 10000);
+      // 투자금 현황 주기적 업데이트 (10초마다)
+      setInterval(async () => {
+        try {
+          await loadInvestmentOverview();
+        } catch (error) {
+          console.error('Failed to reload investment overview:', error);
+        }
+      }, 10000);
+      // 투자자 순위 주기적 업데이트 (30초마다)
+      setInterval(async () => {
+        try {
+          await loadInvestorRankings();
+        } catch (error) {
+          console.error('Failed to reload investor rankings:', error);
+        }
+      }, 30000);
+      // 팀 상태 주기적 업데이트 (5초마다)
+      setInterval(async () => {
+        try {
+          await loadTeamsStatus();
+        } catch (error) {
+          console.error('Failed to reload teams status:', error);
+        }
+      }, 5000);
     } else {
       showLoginScreen();
     }
