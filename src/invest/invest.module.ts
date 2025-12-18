@@ -6,6 +6,7 @@ import { User } from "../users/entity/user.entity";
 import { CompetitionTeam } from "../teams/entity/team.entity";
 import { UserInvestment } from "../investments/entity/user-investment.entity";
 import { InvestmentHistory } from "../investments/entity/investment-history.entity";
+import { DbInternalService } from "../db-internal/db-internal.service";
 
 @Module({
   imports: [
@@ -17,6 +18,6 @@ import { InvestmentHistory } from "../investments/entity/investment-history.enti
     ]),
   ],
   controllers: [InvestController],
-  providers: [InvestService],
+  providers: [InvestService, DbInternalService],
 })
 export class InvestModule {}

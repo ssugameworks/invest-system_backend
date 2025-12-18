@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   UnauthorizedException,
+  ServiceUnavailableException,
 } from "@nestjs/common";
 import { InvestRequestDto } from "./dto/invest-request.dto";
 import { InvestResponseDto } from "./dto/invest-response.dto";
@@ -11,6 +12,7 @@ import { User } from "../users/entity/user.entity";
 import { CompetitionTeam } from "../teams/entity/team.entity";
 import { UserInvestment } from "../investments/entity/user-investment.entity";
 import { InvestmentHistory } from "../investments/entity/investment-history.entity";
+import { DbInternalService } from "../db-internal/db-internal.service";
 
 @Injectable()
 export class InvestService {
@@ -22,8 +24,17 @@ export class InvestService {
     private readonly userInvestmentRepo: Repository<UserInvestment>,
     @InjectRepository(InvestmentHistory)
     private readonly investmentHistoryRepo: Repository<InvestmentHistory>,
-    private readonly dataSource: DataSource
+    private readonly dataSource: DataSource,
+    private readonly dbInternalService: DbInternalService
   ) {}
+
+  private checkTradingEnabled(): void {
+    if (!this.dbInternalService.isTradingEnabled()) {
+      throw new ServiceUnavailableException(
+        "현재 거래가 중단되어 있습니다. 잠시 후 다시 시도해주세요."
+      );
+    }
+  }
 
   private extractToken(authorization?: string): string {
     if (!authorization || typeof authorization !== "string") {
@@ -45,9 +56,13 @@ export class InvestService {
     body: InvestRequestDto,
     authorization?: string
   ): Promise<InvestResponseDto> {
+    // 거래 중단 상태 체크
+    this.checkTradingEnabled();
+    
     const token = this.extractToken(authorization);
 
     // 트랜잭션으로 원자성 보장
+    try {
     return await this.dataSource.transaction(async (manager) => {
       const user = await manager.findOne(User, {
         where: { accessToken: token },
@@ -154,21 +169,33 @@ export class InvestService {
           ? `투자가 완료되었습니다. (${shares.toFixed(4)}주 매수, 요청: ${body.amount.toLocaleString()}원, 실제: ${investAmount.toLocaleString()}원 - 총 투자 시드 500만원 제한)`
           : `투자가 완료되었습니다. (${shares.toFixed(4)}주 매수)`;
 
+      // 거래 성공 기록
+      DbInternalService.recordTransaction('buy', true);
+
       return {
         amount: investAmount,
         status: "success",
         message,
       };
     });
+    } catch (error) {
+      // 거래 실패 기록
+      DbInternalService.recordTransaction('buy', false);
+      throw error;
+    }
   }
 
   async sell(
     body: InvestRequestDto,
     authorization?: string
   ): Promise<InvestResponseDto> {
+    // 거래 중단 상태 체크
+    this.checkTradingEnabled();
+    
     const token = this.extractToken(authorization);
 
     // 트랜잭션으로 원자성 보장
+    try {
     return await this.dataSource.transaction(async (manager) => {
       const user = await manager.findOne(User, {
         where: { accessToken: token },
@@ -252,12 +279,20 @@ export class InvestService {
       // 5. 자산 재계산
       await this.updateUserAssets(user.id, manager);
 
+      // 거래 성공 기록
+      DbInternalService.recordTransaction('sell', true);
+
       return {
         amount: body.amount,
         status: "success",
         message: `매도가 완료되었습니다. (${sharesToSell.toFixed(4)}주 매도)`,
       };
     });
+    } catch (error) {
+      // 거래 실패 기록
+      DbInternalService.recordTransaction('sell', false);
+      throw error;
+    }
   }
 
   private async updateUserAssets(

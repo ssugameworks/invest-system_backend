@@ -315,6 +315,45 @@ export class DbInternalController {
     return await this.dbInternalService.getInvestmentOverview();
   }
 
+  @Get("api/trading/status")
+  @UseGuards(AdminGuard)
+  @ApiBearerAuth("bearer")
+  @ApiOperation({ summary: "Get trading status (enabled/disabled)" })
+  async getTradingStatus() {
+    return { 
+      tradingEnabled: this.dbInternalService.isTradingEnabled(),
+      message: this.dbInternalService.isTradingEnabled() 
+        ? '거래가 활성화되어 있습니다.' 
+        : '⚠️ 거래가 중단되어 있습니다!'
+    };
+  }
+
+  @Post("api/trading/toggle")
+  @UseGuards(AdminGuard)
+  @ApiBearerAuth("bearer")
+  @ApiOperation({ summary: "Toggle trading status (enable/disable)" })
+  @ApiBody({ schema: { type: 'object', properties: {
+    enabled: { type: 'boolean' }
+  }, required: ['enabled'] }})
+  async toggleTrading(@Body("enabled") enabled: boolean) {
+    this.dbInternalService.setTradingEnabled(enabled);
+    return { 
+      success: true, 
+      tradingEnabled: enabled,
+      message: enabled 
+        ? '거래가 활성화되었습니다.' 
+        : '⚠️ 거래가 중단되었습니다!'
+    };
+  }
+
+  @Get("api/monitoring/realtime")
+  @UseGuards(AdminGuard)
+  @ApiBearerAuth("bearer")
+  @ApiOperation({ summary: "Get realtime monitoring data" })
+  async getRealtimeMonitoring() {
+    return await this.dbInternalService.getRealtimeMonitoring();
+  }
+
   @Get("api/investors/rankings")
   @UseGuards(AdminGuard)
   @ApiBearerAuth("bearer")
@@ -408,6 +447,89 @@ export class DbInternalController {
           >
             로그아웃
           </button>
+        </div>
+
+vmf        <!-- 🔴 실시간 모니터링 및 거래 중단 섹션 -->
+        <div id="realtime-monitoring-section" class="bg-white rounded-lg shadow p-6 mb-6 border-2 border-blue-200">
+          <div class="flex justify-between items-center mb-4">
+            <div class="flex items-center gap-3">
+              <h2 class="text-xl font-semibold">🎯 실시간 대회 모니터링</h2>
+              <span id="monitoring-status" class="px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">
+                정상
+              </span>
+            </div>
+            <div class="flex items-center gap-3">
+              <span id="trading-status-badge" class="px-4 py-2 rounded-lg text-sm font-bold bg-green-500 text-white">
+                거래 활성화
+              </span>
+              <button
+                id="trading-toggle-btn"
+                onclick="toggleTrading()"
+                class="px-4 py-2 rounded-lg font-semibold transition-all bg-red-500 text-white hover:bg-red-600"
+              >
+                🛑 투자 중단
+              </button>
+            </div>
+          </div>
+          
+          <!-- 핵심 지표 -->
+          <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-4">
+            <div class="p-4 bg-blue-50 rounded-lg border border-blue-200">
+              <p class="text-xs text-gray-600 mb-1">TPS (초당 거래)</p>
+              <p id="current-tps" class="text-2xl font-bold text-blue-600">0.00</p>
+            </div>
+            <div class="p-4 bg-green-50 rounded-lg border border-green-200">
+              <p class="text-xs text-gray-600 mb-1">성공률 (5분)</p>
+              <p id="success-rate" class="text-2xl font-bold text-green-600">100%</p>
+            </div>
+            <div class="p-4 bg-purple-50 rounded-lg border border-purple-200">
+              <p class="text-xs text-gray-600 mb-1">매수 (5분)</p>
+              <p id="buy-count" class="text-2xl font-bold text-purple-600">0</p>
+            </div>
+            <div class="p-4 bg-orange-50 rounded-lg border border-orange-200">
+              <p class="text-xs text-gray-600 mb-1">매도 (5분)</p>
+              <p id="sell-count" class="text-2xl font-bold text-orange-600">0</p>
+            </div>
+            <div class="p-4 bg-red-50 rounded-lg border border-red-200">
+              <p class="text-xs text-gray-600 mb-1">에러 (5분)</p>
+              <p id="error-count" class="text-2xl font-bold text-red-600">0</p>
+            </div>
+            <div class="p-4 bg-gray-50 rounded-lg border border-gray-200">
+              <p class="text-xs text-gray-600 mb-1">DB 연결</p>
+              <p id="db-connections" class="text-2xl font-bold text-gray-600">0</p>
+            </div>
+          </div>
+
+          <!-- 경고 메시지 영역 -->
+          <div id="warning-messages" class="hidden p-4 bg-yellow-50 rounded-lg border border-yellow-200 mb-4">
+            <p class="text-sm font-semibold text-yellow-800">⚠️ 주의사항</p>
+            <ul id="warning-list" class="text-sm text-yellow-700 mt-1 list-disc list-inside"></ul>
+          </div>
+
+          <!-- 거래 중단 확인 모달 -->
+          <div id="trading-confirm-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
+            <div class="bg-white rounded-lg shadow-xl p-6 max-w-md w-full">
+              <h3 id="trading-confirm-title" class="text-xl font-bold mb-4 text-red-600">🛑 거래를 중단하시겠습니까?</h3>
+              <p id="trading-confirm-message" class="text-gray-600 mb-6">
+                모든 사용자의 매수/매도가 차단됩니다. 긴급 상황에서만 사용하세요.
+              </p>
+              <div class="flex gap-3">
+                <button
+                  id="trading-confirm-btn"
+                  onclick="confirmToggleTrading()"
+                  class="flex-1 px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 font-semibold"
+                >
+                  확인
+                </button>
+                <button
+                  onclick="closeToggleModal()"
+                  class="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+                >
+                  취소
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div id="stats-section" class="bg-white rounded-lg shadow p-4 mb-6 hidden">
@@ -1960,6 +2082,149 @@ export class DbInternalController {
       }
     }
 
+    // 실시간 모니터링 로드
+    let pendingTradingAction = null;
+    
+    async function loadRealtimeMonitoring() {
+      try {
+        const data = await apiRequest('/monitoring/realtime');
+        
+        // TPS
+        document.getElementById('current-tps').textContent = data.tps.toFixed(2);
+        
+        // 성공률
+        document.getElementById('success-rate').textContent = data.successRate.toFixed(1) + '%';
+        const successRateEl = document.getElementById('success-rate');
+        if (data.successRate < 90) {
+          successRateEl.classList.remove('text-green-600');
+          successRateEl.classList.add('text-red-600');
+        } else if (data.successRate < 95) {
+          successRateEl.classList.remove('text-green-600', 'text-red-600');
+          successRateEl.classList.add('text-yellow-600');
+        } else {
+          successRateEl.classList.remove('text-yellow-600', 'text-red-600');
+          successRateEl.classList.add('text-green-600');
+        }
+        
+        // 거래 수
+        document.getElementById('buy-count').textContent = data.buyCount;
+        document.getElementById('sell-count').textContent = data.sellCount;
+        document.getElementById('error-count').textContent = data.errorCount;
+        document.getElementById('db-connections').textContent = data.dbConnections;
+        
+        // 거래 상태 업데이트
+        updateTradingStatusUI(data.tradingEnabled);
+        
+        // 모니터링 상태 업데이트
+        const statusEl = document.getElementById('monitoring-status');
+        if (data.errorCount > 10 || data.successRate < 90) {
+          statusEl.textContent = '⚠️ 주의';
+          statusEl.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700';
+        } else if (data.errorCount > 5 || data.successRate < 95) {
+          statusEl.textContent = '경고';
+          statusEl.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-700';
+        } else {
+          statusEl.textContent = '정상';
+          statusEl.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700';
+        }
+        
+        // 경고 메시지
+        const warnings = [];
+        if (data.tps > 15) warnings.push('TPS가 높습니다. 서버 부하를 모니터링하세요.');
+        if (data.successRate < 95) warnings.push('성공률이 낮습니다. 에러 로그를 확인하세요.');
+        if (data.dbConnections > 25) warnings.push('DB 연결 수가 높습니다. 커넥션 풀을 확인하세요.');
+        if (!data.tradingEnabled) warnings.push('현재 거래가 중단되어 있습니다!');
+        
+        const warningSection = document.getElementById('warning-messages');
+        const warningList = document.getElementById('warning-list');
+        if (warnings.length > 0) {
+          warningList.innerHTML = warnings.map(w => '<li>' + w + '</li>').join('');
+          warningSection.classList.remove('hidden');
+        } else {
+          warningSection.classList.add('hidden');
+        }
+        
+      } catch (error) {
+        console.error('Failed to load realtime monitoring:', error);
+      }
+    }
+    
+    function updateTradingStatusUI(enabled) {
+      const badge = document.getElementById('trading-status-badge');
+      const btn = document.getElementById('trading-toggle-btn');
+      
+      if (enabled) {
+        badge.textContent = '거래 활성화';
+        badge.className = 'px-4 py-2 rounded-lg text-sm font-bold bg-green-500 text-white';
+        btn.textContent = '🛑 투자 중단';
+        btn.className = 'px-4 py-2 rounded-lg font-semibold transition-all bg-red-500 text-white hover:bg-red-600';
+      } else {
+        badge.textContent = '⚠️ 거래 중단됨';
+        badge.className = 'px-4 py-2 rounded-lg text-sm font-bold bg-red-500 text-white animate-pulse';
+        btn.textContent = '✅ 거래 재개';
+        btn.className = 'px-4 py-2 rounded-lg font-semibold transition-all bg-green-500 text-white hover:bg-green-600';
+      }
+    }
+    
+    async function toggleTrading() {
+      // 현재 상태 확인
+      try {
+        const status = await apiRequest('/trading/status');
+        pendingTradingAction = !status.tradingEnabled;
+        
+        const modal = document.getElementById('trading-confirm-modal');
+        const title = document.getElementById('trading-confirm-title');
+        const message = document.getElementById('trading-confirm-message');
+        const confirmBtn = document.getElementById('trading-confirm-btn');
+        
+        if (status.tradingEnabled) {
+          title.textContent = '🛑 거래를 중단하시겠습니까?';
+          title.className = 'text-xl font-bold mb-4 text-red-600';
+          message.textContent = '모든 사용자의 매수/매도가 차단됩니다. 긴급 상황에서만 사용하세요.';
+          confirmBtn.textContent = '거래 중단';
+          confirmBtn.className = 'flex-1 px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 font-semibold';
+        } else {
+          title.textContent = '✅ 거래를 재개하시겠습니까?';
+          title.className = 'text-xl font-bold mb-4 text-green-600';
+          message.textContent = '모든 사용자의 매수/매도가 다시 가능해집니다.';
+          confirmBtn.textContent = '거래 재개';
+          confirmBtn.className = 'flex-1 px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 font-semibold';
+        }
+        
+        modal.classList.remove('hidden');
+      } catch (error) {
+        alert('거래 상태 확인에 실패했습니다: ' + error.message);
+      }
+    }
+    
+    async function confirmToggleTrading() {
+      if (pendingTradingAction === null) return;
+      
+      try {
+        await apiRequest('/trading/toggle', {
+          method: 'POST',
+          body: JSON.stringify({ enabled: pendingTradingAction })
+        });
+        
+        updateTradingStatusUI(pendingTradingAction);
+        closeToggleModal();
+        
+        const message = pendingTradingAction 
+          ? '✅ 거래가 재개되었습니다.' 
+          : '🛑 거래가 중단되었습니다.';
+        alert(message);
+        
+        await loadRealtimeMonitoring();
+      } catch (error) {
+        alert('거래 상태 변경에 실패했습니다: ' + error.message);
+      }
+    }
+    
+    function closeToggleModal() {
+      document.getElementById('trading-confirm-modal').classList.add('hidden');
+      pendingTradingAction = null;
+    }
+
     // 초기화
     if (adminToken) {
       showMainScreen();
@@ -1969,6 +2234,7 @@ export class DbInternalController {
       loadTeamsStatus();
       loadInvestmentOverview();
       loadInvestorRankings();
+      loadRealtimeMonitoring();
       // 투자 시드 정보 주기적 업데이트 (10초마다)
       setInterval(async () => {
         try {
@@ -2002,6 +2268,14 @@ export class DbInternalController {
           console.error('Failed to reload teams status:', error);
         }
       }, 5000);
+      // 실시간 모니터링 주기적 업데이트 (3초마다)
+      setInterval(async () => {
+        try {
+          await loadRealtimeMonitoring();
+        } catch (error) {
+          console.error('Failed to reload realtime monitoring:', error);
+        }
+      }, 3000);
     } else {
       showLoginScreen();
     }

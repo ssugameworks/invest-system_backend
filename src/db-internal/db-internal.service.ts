@@ -37,11 +37,112 @@ const SENSITIVE_COLUMNS = [
 @Injectable()
 export class DbInternalService {
   private lastNetworkStats: { rx: number; tx: number; timestamp: number } | null = null;
+  
+  // 거래 상태 (true = 거래 가능, false = 거래 중단)
+  private static tradingEnabled: boolean = true;
+  
+  // 실시간 모니터링용 통계
+  private static recentTransactions: Array<{
+    timestamp: number;
+    type: 'buy' | 'sell';
+    success: boolean;
+  }> = [];
 
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource
   ) {}
+
+  // 거래 상태 조회
+  isTradingEnabled(): boolean {
+    return DbInternalService.tradingEnabled;
+  }
+
+  // 거래 상태 변경
+  setTradingEnabled(enabled: boolean): void {
+    DbInternalService.tradingEnabled = enabled;
+  }
+
+  // 거래 기록 추가 (invest.service에서 호출)
+  static recordTransaction(type: 'buy' | 'sell', success: boolean): void {
+    const now = Date.now();
+    DbInternalService.recentTransactions.push({ timestamp: now, type, success });
+    
+    // 5분 이전 기록 삭제
+    const fiveMinutesAgo = now - 5 * 60 * 1000;
+    DbInternalService.recentTransactions = DbInternalService.recentTransactions.filter(
+      t => t.timestamp > fiveMinutesAgo
+    );
+  }
+
+  // 실시간 모니터링 데이터 조회
+  async getRealtimeMonitoring(): Promise<{
+    tradingEnabled: boolean;
+    tps: number;
+    recentTransactionsCount: number;
+    successRate: number;
+    buyCount: number;
+    sellCount: number;
+    errorCount: number;
+    dbConnections: number;
+    recentErrors: Array<{ time: string; message: string }>;
+  }> {
+    const now = Date.now();
+    const oneMinuteAgo = now - 60 * 1000;
+    const fiveMinutesAgo = now - 5 * 60 * 1000;
+    
+    // 최근 1분 거래 (TPS 계산용)
+    const lastMinuteTransactions = DbInternalService.recentTransactions.filter(
+      t => t.timestamp > oneMinuteAgo
+    );
+    
+    // 최근 5분 거래 (통계용)
+    const recentTransactions = DbInternalService.recentTransactions.filter(
+      t => t.timestamp > fiveMinutesAgo
+    );
+    
+    const successfulTransactions = recentTransactions.filter(t => t.success);
+    const buyTransactions = recentTransactions.filter(t => t.type === 'buy');
+    const sellTransactions = recentTransactions.filter(t => t.type === 'sell');
+    const failedTransactions = recentTransactions.filter(t => !t.success);
+    
+    // TPS 계산 (최근 1분 기준)
+    const tps = lastMinuteTransactions.length / 60;
+    
+    // 성공률 계산
+    const successRate = recentTransactions.length > 0 
+      ? (successfulTransactions.length / recentTransactions.length) * 100 
+      : 100;
+    
+    // DB 커넥션 수 조회
+    let dbConnections = 0;
+    try {
+      const connQuery = `
+        SELECT count(*) as count 
+        FROM pg_stat_activity 
+        WHERE datname = current_database()
+      `;
+      const connResult = await this.dataSource.query(connQuery);
+      dbConnections = parseInt(connResult[0]?.count || '0', 10);
+    } catch (error) {
+      // 권한 문제로 조회 실패할 수 있음
+    }
+    
+    // 최근 에러 조회 (investment_history에서)
+    let recentErrors: Array<{ time: string; message: string }> = [];
+    
+    return {
+      tradingEnabled: DbInternalService.tradingEnabled,
+      tps: Math.round(tps * 100) / 100,
+      recentTransactionsCount: recentTransactions.length,
+      successRate: Math.round(successRate * 100) / 100,
+      buyCount: buyTransactions.length,
+      sellCount: sellTransactions.length,
+      errorCount: failedTransactions.length,
+      dbConnections,
+      recentErrors,
+    };
+  }
 
   private escapeIdentifier(identifier: string): string {
     // PostgreSQL identifier escape: double quotes
