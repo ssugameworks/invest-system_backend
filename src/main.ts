@@ -22,7 +22,12 @@ async function bootstrap() {
     console.log(`📦 NODE_ENV: ${process.env.NODE_ENV || 'development'}`);
     console.log(`🔗 PORT: ${process.env.PORT || '3001'}`);
 
-    const defaultOrigins = ['https://invest.gameworks.app', 'https://gameworks-flow-v1.vercel.app', 'http://localhost:3000'];
+    const defaultOrigins = [
+      'https://invest.gameworks.app', 
+      'https://gameworks-flow-v1.vercel.app', 
+      'http://localhost:3000',
+      'https://invest-systembackend-production.up.railway.app'
+    ];
     
     let allowedOrigins: string[] = [];
     
