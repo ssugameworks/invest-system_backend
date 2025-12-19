@@ -46,12 +46,22 @@ export class UserDeletionService {
         });
 
         if (team) {
-          // 투자 금액만큼 팀의 총 투자금에서 차감
+          // ⭐ 투자 금액만큼 팀의 총 투자금에서 차감
           const currentMoney = team.money ?? 0;
-          team.money = Math.max(0, currentMoney - investment.invested_amount);
+          const investedAmount = investment.invested_amount;
+          
+          // ⭐ 팀의 money가 충분한지 확인 (비례 조정 후 데이터 불일치 방지)
+          if (investedAmount > currentMoney) {
+            // 데이터 불일치가 발생한 경우 (비례 조정 등으로 인해)
+            // 현재 money만큼만 환불하고 로그 기록
+            team.money = 0;
+            totalRefund += currentMoney;
+          } else {
+            team.money = currentMoney - investedAmount;
+            totalRefund += investedAmount;
+          }
+          
           await manager.save(CompetitionTeam, team);
-
-          totalRefund += investment.invested_amount;
         }
       }
 

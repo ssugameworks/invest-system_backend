@@ -79,6 +79,14 @@ export class PricingService implements OnModuleInit {
         config.E1 = config.E;
         config.E2 = config.E;
         
+        // 주가 변동 민감도 설정 (DB에 없으면 기본값 사용)
+        if (config.BUY_PRICE_CHANGE_PER_WON === undefined || config.BUY_PRICE_CHANGE_PER_WON === null) {
+          config.BUY_PRICE_CHANGE_PER_WON = Number(process.env.PRICING_BUY_PRICE_CHANGE_PER_WON ?? 0.00001);
+        }
+        if (config.SELL_PRICE_CHANGE_PER_WON === undefined || config.SELL_PRICE_CHANGE_PER_WON === null) {
+          config.SELL_PRICE_CHANGE_PER_WON = Number(process.env.PRICING_SELL_PRICE_CHANGE_PER_WON ?? 0.00001);
+        }
+        
         return config;
       }
     } catch (error) {
@@ -98,6 +106,9 @@ export class PricingService implements OnModuleInit {
       // 하위 호환성을 위해 E1, E2도 설정
       E1: E,
       E2: E,
+      // 주가 변동 민감도 설정 (기본값)
+      BUY_PRICE_CHANGE_PER_WON: Number(process.env.PRICING_BUY_PRICE_CHANGE_PER_WON ?? 0.00001),
+      SELL_PRICE_CHANGE_PER_WON: Number(process.env.PRICING_SELL_PRICE_CHANGE_PER_WON ?? 0.00001),
     };
   }
 
@@ -109,6 +120,8 @@ export class PricingService implements OnModuleInit {
     
     this.isRecalculating = true;
     try {
+      // ⭐ 트랜잭션으로 가격 재계산을 원자적으로 수행
+      await this.dataSource.transaction(async (manager) => {
       const config = await this.getPricingConfig();
     const { P0, E, GAMMA, L, U } = config;
     // 하위 호환성을 위해 E1, L1, U1도 지원
@@ -116,8 +129,8 @@ export class PricingService implements OnModuleInit {
     const effectiveL = L || config.L1 || 0.6;
     const effectiveU = U || config.U1 || 15.0;
 
-    // DB에서 최신 값 가져오기
-    const teams = await this.teamRepo.find();
+    // ⭐ DB에서 최신 값 가져오기 (트랜잭션 내부)
+    const teams = await manager.find(CompetitionTeam);
     const now = new Date();
 
     // 전체 투자금 합계 확인 (총 투자 시드 500만원 제한)
@@ -127,68 +140,103 @@ export class PricingService implements OnModuleInit {
       0
     );
 
-    // 전체 투자금이 500만원을 초과하면 비례적으로 조정
+    // ⭐ 전체 투자금이 500만원을 초과하면 비례적으로 조정 (트랜잭션 내부)
     if (currentTotalInvestment > TOTAL_INVESTMENT_SEED) {
       const scaleFactor = TOTAL_INVESTMENT_SEED / currentTotalInvestment;
 
-      // 모든 팀의 투자금을 비례적으로 조정
-      for (const team of teams) {
-        const adjustedMoney = Math.round((team.money ?? 0) * scaleFactor);
-        team.money = adjustedMoney;
-        await this.teamRepo.save(team);
+      // 모든 팀의 투자금을 비례적으로 조정 (배치 업데이트로 원자성 보장)
+      const teamIds = teams.map(t => t.id);
+      if (teamIds.length > 0) {
+        await manager.query(
+          `UPDATE competition_teams SET money = ROUND(money * $1) WHERE id = ANY($2)`,
+          [scaleFactor, teamIds]
+        );
+
+        // ⭐ user_investments의 invested_amount도 동일한 비율로 조정 (데이터 일관성 유지)
+        // 팀 money와 invested_amount의 합계가 일치하도록 보장
+        await manager.query(
+          `UPDATE user_investments SET invested_amount = ROUND(invested_amount * $1) WHERE team_id = ANY($2)`,
+          [scaleFactor, teamIds]
+        );
       }
     }
+
+    // ⭐ 최적화: 모든 팀의 최근 거래를 한 번에 조회 (N+1 쿼리 문제 해결)
+    const fifteenSecondsAgo = new Date(now.getTime() - 15000);
+    
+    // ⭐ 모든 팀의 최근 15초 이내 매수/매도 금액을 한 번에 조회 (트랜잭션 내부)
+    const recentTransactions = await manager.query(
+      `
+      SELECT 
+        team_id,
+        type,
+        SUM(amount) as total_amount
+      FROM investment_history
+      WHERE created_at >= $1
+      GROUP BY team_id, type
+      `,
+      [fifteenSecondsAgo]
+    );
+    
+    // 팀별로 거래 금액을 맵으로 구성
+    const teamTransactions = new Map<number, { buy: number; sell: number }>();
+    for (const tx of recentTransactions) {
+      const teamId = tx.team_id;
+      if (!teamTransactions.has(teamId)) {
+        teamTransactions.set(teamId, { buy: 0, sell: 0 });
+      }
+      const teamTx = teamTransactions.get(teamId)!;
+      if (tx.type === 'buy') {
+        teamTx.buy = Number(tx.total_amount || 0);
+      } else if (tx.type === 'sell') {
+        teamTx.sell = Number(tx.total_amount || 0);
+      }
+    }
+
+    // ⭐ 최적화: 모든 팀의 현재 가격을 한 번에 조회 (트랜잭션 내부)
+    const teamPriceResults = await manager.query(
+      `SELECT id, p FROM competition_teams`
+    );
+    const teamPriceMap = new Map<number, number>();
+    for (const row of teamPriceResults) {
+      teamPriceMap.set(row.id, row.p ?? P0);
+    }
+
+    // ⭐ 최적화: 배치 업데이트를 위한 배열 준비
+    const priceUpdates: Array<{ teamId: number; price: number }> = [];
+    const priceHistoryInserts: Array<{ teamId: number; price: number }> = [];
 
     for (const team of teams) {
       const i = Number(team.money ?? 0);
       
-      // ⭐ Raw SQL로 직접 p 값을 읽기 (캐시 완전 무시)
-      const result = await this.dataSource.query(
-        `SELECT p FROM competition_teams WHERE id = $1`,
-        [team.id]
-      );
-      let basePrice: number = result[0]?.p ?? P0;
+      // ⭐ 최적화: 맵에서 조회 (개별 쿼리 대신)
+      let basePrice: number = teamPriceMap.get(team.id) ?? P0;
       
       // basePrice가 0이거나 null이면 초기값으로 설정
       if (!basePrice || basePrice === 0) {
         basePrice = P0;
-        await this.dataSource.query(
-          `UPDATE competition_teams SET p = $1 WHERE id = $2`,
-          [P0, team.id]
-        );
+        teamPriceMap.set(team.id, P0);
       }
       
       // 주가 계산: 현재 주가를 기준으로 하되, 최근 투자금 변화량만 반영
       // 문제: team.money는 누적 투자금이므로, 전체를 기준으로 계산하면 주가가 과도하게 상승
       // 해결: 최근 15초 이내 투자 금액만 반영하여 주가 변화량 계산 (10초마다 실행되므로 여유있게 15초)
       // 주가가 1000원일 때 50,000원 투자 시 주가가 5~10원 상승하도록 설정
-      const fifteenSecondsAgo = new Date(now.getTime() - 15000);
       
-      // 최근 15초 이내 매수 금액 조회
-      const recentBuys = await this.investmentHistoryRepo
-        .createQueryBuilder("history")
-        .where("history.team_id = :teamId", { teamId: team.id })
-        .andWhere("history.type = 'buy'")
-        .andWhere("history.created_at >= :fifteenSecondsAgo", { fifteenSecondsAgo })
-        .select("SUM(history.amount)", "totalAmount")
-        .getRawOne();
-      
-      // 최근 15초 이내 매도 금액 조회
-      const recentSells = await this.investmentHistoryRepo
-        .createQueryBuilder("history")
-        .where("history.team_id = :teamId", { teamId: team.id })
-        .andWhere("history.type = 'sell'")
-        .andWhere("history.created_at >= :fifteenSecondsAgo", { fifteenSecondsAgo })
-        .select("SUM(history.amount)", "totalAmount")
-        .getRawOne();
-      
-      const recentBuyAmount = Number(recentBuys?.totalAmount || 0);
-      const recentSellAmount = Number(recentSells?.totalAmount || 0);
+      // ⭐ 최적화: 맵에서 조회 (개별 쿼리 대신)
+      const teamTx = teamTransactions.get(team.id) || { buy: 0, sell: 0 };
+      const recentBuyAmount = teamTx.buy;
+      const recentSellAmount = teamTx.sell;
       
       // 매수와 매도를 반영하여 주가 변화량 계산
       // 매수와 매도 동일한 영향력으로 설정
-      const buyPriceChangePerWon = 0.0001; // 매수 1원당 주가 상승량
-      const sellPriceChangePerWon = 0.0001; // 매도 1원당 주가 하락량 (매수와 동일)
+      // DB에서 설정값 읽기, 없으면 기본값 사용
+      const buyPriceChangePerWon = config.BUY_PRICE_CHANGE_PER_WON !== undefined 
+        ? config.BUY_PRICE_CHANGE_PER_WON 
+        : 0.00001; // 매수 1원당 주가 상승량
+      const sellPriceChangePerWon = config.SELL_PRICE_CHANGE_PER_WON !== undefined 
+        ? config.SELL_PRICE_CHANGE_PER_WON 
+        : 0.00001; // 매도 1원당 주가 하락량 (매수와 동일)
       
       // 매수로 인한 상승과 매도로 인한 하락을 각각 계산
       const buyPriceChange = recentBuyAmount * buyPriceChangePerWon;
@@ -216,38 +264,49 @@ export class PricingService implements OnModuleInit {
 
       const currentPrice = p1;
 
-      // prices 테이블에 가격 이력 저장
-      await this.priceRepo.save({
-        teamId: team.id,
-        round: 1,
-        price: p1,
-        tickTs: now
-      });
-
-      // ⭐ Raw SQL로 직접 업데이트 (확실한 저장)
-      await this.dataSource.query(
-        `UPDATE competition_teams SET p = $1 WHERE id = $2`,
-        [currentPrice, team.id]
-      );
-      
-      // ⭐ 즉시 재확인 (에러 체크만, 로그 없음)
-      const verifyResult = await this.dataSource.query(
-        `SELECT p FROM competition_teams WHERE id = $1`,
-        [team.id]
-      );
-      const savedPrice = verifyResult[0]?.p;
-      
-      if (savedPrice !== currentPrice) {
-        // 업데이트 실패 시 재시도
-        await this.dataSource.query(
-          `UPDATE competition_teams SET p = $1 WHERE id = $2`,
-          [currentPrice, team.id]
-        );
-      }
+      // ⭐ 최적화: 배치 업데이트를 위해 배열에 추가
+      priceUpdates.push({ teamId: team.id, price: currentPrice });
+      priceHistoryInserts.push({ teamId: team.id, price: currentPrice });
     }
 
-    // shares가 1 미만인 user_investments 레코드 삭제
-    await this.cleanupLowShares();
+    // ⭐ 최적화: 모든 가격 업데이트를 배치로 실행 (트랜잭션 내부)
+    if (priceUpdates.length > 0) {
+      // 개별 업데이트보다는 CASE 문을 사용한 단일 쿼리가 더 효율적이지만,
+      // 간단하게 배치로 처리 (트랜잭션 내부이므로 원자성 보장)
+      await Promise.all(
+        priceUpdates.map(update =>
+          manager.query(
+            `UPDATE competition_teams SET p = $1 WHERE id = $2`,
+            [update.price, update.teamId]
+          )
+        )
+      );
+    }
+
+    // ⭐ 최적화: 가격 이력도 배치로 저장
+    if (priceHistoryInserts.length > 0) {
+      const historyValues = priceHistoryInserts.map((insert, index) => 
+        `($${index * 4 + 1}, $${index * 4 + 2}, $${index * 4 + 3}, $${index * 4 + 4})`
+      ).join(', ');
+      const historyParams: any[] = [];
+      priceHistoryInserts.forEach(insert => {
+        historyParams.push(insert.teamId, 1, insert.price, now);
+      });
+      
+      await manager.query(
+        `
+        INSERT INTO prices (team_id, round, price, tick_ts)
+        VALUES ${historyValues}
+        `,
+        historyParams
+      );
+    }
+
+    // shares가 1 미만인 user_investments 레코드 삭제 (트랜잭션 내부)
+    await manager.query(
+      `DELETE FROM user_investments WHERE shares < 1`
+    );
+      }); // 트랜잭션 종료
     } finally {
       // ⭐ 플래그 해제
       this.isRecalculating = false;

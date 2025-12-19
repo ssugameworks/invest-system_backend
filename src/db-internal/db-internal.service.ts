@@ -451,7 +451,14 @@ export class DbInternalService {
       if (rows.length > 0) {
         const config: any = {};
         rows.forEach((row: any) => {
-          config[row.key] = Number(row.value);
+          // 값이 null이거나 빈 문자열이면 undefined로 설정 (프론트엔드에서 빈칸으로 표시)
+          if (row.value === null || row.value === undefined || row.value === '') {
+            config[row.key] = undefined;
+          } else {
+            const numValue = Number(row.value);
+            // NaN이 아니면 설정, NaN이면 undefined
+            config[row.key] = isNaN(numValue) ? undefined : numValue;
+          }
         });
         
         // E 계산 (라운드 통합)
@@ -462,6 +469,10 @@ export class DbInternalService {
         // 하위 호환성을 위해 E1, E2도 설정
         config.E1 = config.E;
         config.E2 = config.E;
+        
+        // 주가 변동 민감도 설정 (DB에 값이 있으면 그대로 사용, 없으면 undefined 유지 - 프론트엔드에서 빈칸으로 표시)
+        // pricing.service.ts에서는 기본값을 사용하지만, 여기서는 DB에 저장된 값만 반환
+        // config.BUY_PRICE_CHANGE_PER_WON과 config.SELL_PRICE_CHANGE_PER_WON은 DB에 있으면 그대로, 없으면 undefined
         
         return config;
       }
@@ -494,6 +505,9 @@ export class DbInternalService {
       L2: L,
       U1: U,
       U2: U,
+      // 주가 변동 민감도 설정
+      BUY_PRICE_CHANGE_PER_WON: Number(process.env.PRICING_BUY_PRICE_CHANGE_PER_WON ?? 0.00001),
+      SELL_PRICE_CHANGE_PER_WON: Number(process.env.PRICING_SELL_PRICE_CHANGE_PER_WON ?? 0.00001),
     };
   }
 
@@ -505,7 +519,7 @@ export class DbInternalService {
         throw new Error(`Invalid config key: ${key}`);
       }
       
-      const escapedKey = this.escapeIdentifier("key");
+      // key는 컬럼 이름이 아니라 값이므로 escape할 필요 없음
       const query = `
         INSERT INTO ${escapedTableName} (key, value, updated_at)
         VALUES ($1, $2, NOW())

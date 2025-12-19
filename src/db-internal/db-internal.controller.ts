@@ -608,6 +608,16 @@ vmf        <!-- 🔴 실시간 모니터링 및 거래 중단 섹션 -->
                 <input type="number" id="config-T" step="1" class="w-full px-2 py-1 border border-gray-300 rounded-md" />
                 <p class="text-xs text-gray-500 mt-1">기본값: 6개</p>
               </div>
+              <div class="p-3 bg-gray-50 rounded">
+                <label class="block text-gray-600 mb-1">매수 주가 민감도</label>
+                <input type="number" id="config-BUY_PRICE_CHANGE_PER_WON" step="0.0001" class="w-full px-2 py-1 border border-gray-300 rounded-md" />
+                <p class="text-xs text-gray-500 mt-1">기본값: 0.00001 (매수 1원당 주가 상승량)</p>
+              </div>
+              <div class="p-3 bg-gray-50 rounded">
+                <label class="block text-gray-600 mb-1">매도 주가 민감도</label>
+                <input type="number" id="config-SELL_PRICE_CHANGE_PER_WON" step="0.0001" class="w-full px-2 py-1 border border-gray-300 rounded-md" />
+                <p class="text-xs text-gray-500 mt-1">기본값: 0.00001 (매도 1원당 주가 하락량)</p>
+              </div>
             </div>
             <div class="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
               <h4 class="text-sm font-semibold text-blue-900 mb-2">📊 투자 시드 정보</h4>
@@ -1279,14 +1289,17 @@ vmf        <!-- 🔴 실시간 모니터링 및 거래 중단 섹션 -->
     async function loadPricingConfig() {
       try {
         const config = await apiRequest('/pricing/config');
-        document.getElementById('config-N').value = config.N || '';
-        document.getElementById('config-P0').value = config.P0 || '';
+        document.getElementById('config-N').value = config.N !== undefined && config.N !== null ? config.N : '';
+        document.getElementById('config-P0').value = config.P0 !== undefined && config.P0 !== null ? config.P0 : '';
         // 통합된 변수 사용 (하위 호환성을 위해 L1, U1, C1도 지원)
-        document.getElementById('config-L').value = config.L || config.L1 || '';
-        document.getElementById('config-U').value = config.U || config.U1 || '';
-        document.getElementById('config-GAMMA').value = config.GAMMA || '';
-        document.getElementById('config-C').value = config.C || config.C1 || '';
-        document.getElementById('config-T').value = config.T || '';
+        document.getElementById('config-L').value = (config.L !== undefined && config.L !== null) || (config.L1 !== undefined && config.L1 !== null) ? (config.L || config.L1) : '';
+        document.getElementById('config-U').value = (config.U !== undefined && config.U !== null) || (config.U1 !== undefined && config.U1 !== null) ? (config.U || config.U1) : '';
+        document.getElementById('config-GAMMA').value = config.GAMMA !== undefined && config.GAMMA !== null ? config.GAMMA : '';
+        document.getElementById('config-C').value = (config.C !== undefined && config.C !== null) || (config.C1 !== undefined && config.C1 !== null) ? (config.C || config.C1) : '';
+        document.getElementById('config-T').value = config.T !== undefined && config.T !== null ? config.T : '';
+        // 매수/매도 민감도는 값이 있으면 표시 (0도 유효한 값이므로 !== undefined && !== null 체크)
+        document.getElementById('config-BUY_PRICE_CHANGE_PER_WON').value = config.BUY_PRICE_CHANGE_PER_WON !== undefined && config.BUY_PRICE_CHANGE_PER_WON !== null ? config.BUY_PRICE_CHANGE_PER_WON : '';
+        document.getElementById('config-SELL_PRICE_CHANGE_PER_WON').value = config.SELL_PRICE_CHANGE_PER_WON !== undefined && config.SELL_PRICE_CHANGE_PER_WON !== null ? config.SELL_PRICE_CHANGE_PER_WON : '';
         
         // 투자 시드 정보 업데이트
         updateInvestmentSeedInfo(config);
@@ -1331,7 +1344,7 @@ vmf        <!-- 🔴 실시간 모니터링 및 거래 중단 섹션 -->
     async function savePricingConfig() {
       try {
         const updates = {};
-        const keys = ['N', 'T', 'P0', 'C', 'GAMMA', 'L', 'U'];
+        const keys = ['N', 'T', 'P0', 'C', 'GAMMA', 'L', 'U', 'BUY_PRICE_CHANGE_PER_WON', 'SELL_PRICE_CHANGE_PER_WON'];
         
         for (const key of keys) {
           const input = document.getElementById('config-' + key);

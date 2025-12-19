@@ -32,7 +32,7 @@ import { DbInternalModule } from "./db-internal/db-internal.module";
           autoLoadEntities: true,
           synchronize: false, // ✅ 운영은 false (마이그레이션 사용)
           extra: {
-            max: 30, // 권장: 20~50
+            max: 50, // 피크 시간대 대비 증가 (30 → 50)
             idleTimeoutMillis: 10_000,
             connectionTimeoutMillis: 5_000,
           },

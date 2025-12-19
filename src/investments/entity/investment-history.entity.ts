@@ -15,6 +15,9 @@ export type InvestmentType = "buy" | "sell";
 @Entity("investment_history")
 @Index(["user_id"])
 @Index(["created_at"])
+@Index(["team_id", "created_at"]) // 가격 계산 쿼리 최적화
+@Index(["team_id", "type", "created_at"]) // 가격 계산 쿼리 최적화 (type 필터 포함)
+@Index(["idempotency_key"], { unique: true, where: "idempotency_key IS NOT NULL" }) // 중복 체결 방지
 export class InvestmentHistory {
   @PrimaryGeneratedColumn()
   id!: number;
@@ -44,6 +47,9 @@ export class InvestmentHistory {
 
   @Column({ type: "numeric", precision: 18, scale: 6 })
   shares!: number;
+
+  @Column({ name: "idempotency_key", type: "varchar", length: 255, nullable: true, unique: true })
+  idempotency_key?: string | null;
 
   @CreateDateColumn({ type: "timestamptz" })
   created_at!: Date;
