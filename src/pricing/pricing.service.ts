@@ -80,11 +80,13 @@ export class PricingService implements OnModuleInit {
         config.E2 = config.E;
         
         // 주가 변동 민감도 설정 (DB에 없으면 기본값 사용)
+        // ⭐ 기본값: 50,000원 투자 시 5~10원 변동폭 (0.0001 ~ 0.0002)
+        // 실제 계산 시 랜덤 요소가 추가됨
         if (config.BUY_PRICE_CHANGE_PER_WON === undefined || config.BUY_PRICE_CHANGE_PER_WON === null) {
-          config.BUY_PRICE_CHANGE_PER_WON = Number(process.env.PRICING_BUY_PRICE_CHANGE_PER_WON ?? 0.00001);
+          config.BUY_PRICE_CHANGE_PER_WON = Number(process.env.PRICING_BUY_PRICE_CHANGE_PER_WON ?? 0.0001);
         }
         if (config.SELL_PRICE_CHANGE_PER_WON === undefined || config.SELL_PRICE_CHANGE_PER_WON === null) {
-          config.SELL_PRICE_CHANGE_PER_WON = Number(process.env.PRICING_SELL_PRICE_CHANGE_PER_WON ?? 0.00001);
+          config.SELL_PRICE_CHANGE_PER_WON = Number(process.env.PRICING_SELL_PRICE_CHANGE_PER_WON ?? 0.0001);
         }
         
         return config;
@@ -107,8 +109,10 @@ export class PricingService implements OnModuleInit {
       E1: E,
       E2: E,
       // 주가 변동 민감도 설정 (기본값)
-      BUY_PRICE_CHANGE_PER_WON: Number(process.env.PRICING_BUY_PRICE_CHANGE_PER_WON ?? 0.00001),
-      SELL_PRICE_CHANGE_PER_WON: Number(process.env.PRICING_SELL_PRICE_CHANGE_PER_WON ?? 0.00001),
+      // ⭐ 기본값: 50,000원 투자 시 5~10원 변동폭 (0.0001 ~ 0.0002)
+      // 실제 계산 시 랜덤 요소가 추가됨
+      BUY_PRICE_CHANGE_PER_WON: Number(process.env.PRICING_BUY_PRICE_CHANGE_PER_WON ?? 0.0001),
+      SELL_PRICE_CHANGE_PER_WON: Number(process.env.PRICING_SELL_PRICE_CHANGE_PER_WON ?? 0.0001),
     };
   }
 
@@ -165,6 +169,7 @@ export class PricingService implements OnModuleInit {
     const fifteenSecondsAgo = new Date(now.getTime() - 15000);
     
     // ⭐ 모든 팀의 최근 15초 이내 매수/매도 금액을 한 번에 조회 (트랜잭션 내부)
+    // ⭐ 타임존 문제 방지를 위해 명시적으로 타임스탬프 변환
     const recentTransactions = await manager.query(
       `
       SELECT 
@@ -172,11 +177,19 @@ export class PricingService implements OnModuleInit {
         type,
         SUM(amount) as total_amount
       FROM investment_history
-      WHERE created_at >= $1
+      WHERE created_at >= $1::timestamptz
       GROUP BY team_id, type
       `,
       [fifteenSecondsAgo]
     );
+    
+    // ⭐ 디버깅: 최근 거래 로깅
+    if (recentTransactions.length > 0) {
+      this.logger.debug(`최근 15초 이내 거래 발견: ${recentTransactions.length}건`);
+      for (const tx of recentTransactions) {
+        this.logger.debug(`  팀 ${tx.team_id}, ${tx.type}, 금액: ${tx.total_amount}`);
+      }
+    }
     
     // 팀별로 거래 금액을 맵으로 구성
     const teamTransactions = new Map<number, { buy: number; sell: number }>();
@@ -231,12 +244,21 @@ export class PricingService implements OnModuleInit {
       // 매수와 매도를 반영하여 주가 변화량 계산
       // 매수와 매도 동일한 영향력으로 설정
       // DB에서 설정값 읽기, 없으면 기본값 사용
-      const buyPriceChangePerWon = config.BUY_PRICE_CHANGE_PER_WON !== undefined 
+      // ⭐ 기본값: 50,000원 투자 시 5~10원 변동폭 (0.0001 ~ 0.0002)
+      let buyPriceChangePerWon = config.BUY_PRICE_CHANGE_PER_WON !== undefined 
         ? config.BUY_PRICE_CHANGE_PER_WON 
-        : 0.00001; // 매수 1원당 주가 상승량
-      const sellPriceChangePerWon = config.SELL_PRICE_CHANGE_PER_WON !== undefined 
+        : 0.0001; // 기본값: 50,000원 투자 시 약 5원 상승
+      let sellPriceChangePerWon = config.SELL_PRICE_CHANGE_PER_WON !== undefined 
         ? config.SELL_PRICE_CHANGE_PER_WON 
-        : 0.00001; // 매도 1원당 주가 하락량 (매수와 동일)
+        : 0.0001; // 매도 1원당 주가 하락량 (매수와 동일)
+      
+      // ⭐ 5만원 투자 시 5~10원 변동폭을 위해 랜덤 요소 추가 (기본값 사용 시에만)
+      if (config.BUY_PRICE_CHANGE_PER_WON === undefined || config.BUY_PRICE_CHANGE_PER_WON === null) {
+        // 0.0001 ~ 0.0002 사이 랜덤 값 (50,000원 투자 시 5~10원 변동)
+        const randomFactor = 0.0001 + Math.random() * 0.0001; // 0.0001 ~ 0.0002
+        buyPriceChangePerWon = randomFactor;
+        sellPriceChangePerWon = randomFactor;
+      }
       
       // 매수로 인한 상승과 매도로 인한 하락을 각각 계산
       const buyPriceChange = recentBuyAmount * buyPriceChangePerWon;
@@ -244,6 +266,15 @@ export class PricingService implements OnModuleInit {
       
       // 순 주가 변화량 = 매수 상승 - 매도 하락
       const priceChange = buyPriceChange - sellPriceChange;
+      
+      // ⭐ 디버깅: 주가 계산 로깅
+      if (recentBuyAmount > 0 || recentSellAmount > 0) {
+        this.logger.debug(
+          `팀 ${team.id} 주가 계산: basePrice=${basePrice}, ` +
+          `매수=${recentBuyAmount}원, 매도=${recentSellAmount}원, ` +
+          `priceChange=${priceChange.toFixed(6)}`
+        );
+      }
       
       // ⭐ 주가 계산 로직 (단순화)
       // 최근 거래가 있으면 priceChange를 반영, 없으면 주가 유지
@@ -254,7 +285,41 @@ export class PricingService implements OnModuleInit {
         targetPrice = basePrice;
       } else {
         // 매수 또는 매도가 있으면 priceChange 반영 (양수면 상승, 음수면 하락)
-        targetPrice = basePrice + priceChange;
+        // ⭐ 5만원 투자 시 5~10원 변동폭 보장 (매수/매도 동일)
+        const baseAmount = 50000; // 기준 투자 금액
+        const minChangePer50k = 5; // 5만원 투자 시 최소 5원
+        const maxChangePer50k = 10; // 5만원 투자 시 최대 10원
+        
+        let adjustedPriceChange: number;
+        
+        if (priceChange > 0) {
+          // 매수: 매수 금액 기준으로 변동폭 계산
+          const ratio = recentBuyAmount / baseAmount;
+          const minChange = minChangePer50k * ratio; // 최소 변동폭
+          const maxChange = maxChangePer50k * ratio; // 최대 변동폭
+          
+          // 최소 minChange, 최대 maxChange 범위로 조정 후 반올림
+          adjustedPriceChange = Math.max(minChange, Math.min(maxChange, priceChange));
+          adjustedPriceChange = Math.round(adjustedPriceChange);
+          // 최소 1원 보장
+          if (adjustedPriceChange < 1) adjustedPriceChange = 1;
+        } else if (priceChange < 0) {
+          // 매도: 매도 금액 기준으로 변동폭 계산 (매수와 동일한 로직)
+          const ratio = recentSellAmount / baseAmount;
+          const minChange = minChangePer50k * ratio; // 최소 변동폭 (절댓값)
+          const maxChange = maxChangePer50k * ratio; // 최대 변동폭 (절댓값)
+          
+          // 최소 -maxChange, 최대 -minChange 범위로 조정 후 반올림
+          adjustedPriceChange = Math.max(-maxChange, Math.min(-minChange, priceChange));
+          adjustedPriceChange = Math.round(adjustedPriceChange);
+          // 최소 -1원 보장 (절댓값 1원 이상 하락)
+          if (adjustedPriceChange > -1) adjustedPriceChange = -1;
+        } else {
+          // priceChange가 0이면 최소 1원 변화 (거래가 있었으므로)
+          adjustedPriceChange = recentBuyAmount > recentSellAmount ? 1 : -1;
+        }
+        
+        targetPrice = basePrice + adjustedPriceChange;
       }
       
       // clip을 통해 최소/최대 주가 제한 적용
@@ -263,6 +328,14 @@ export class PricingService implements OnModuleInit {
       const p1 = Math.round(Math.min(Math.max(targetPrice, minPrice), maxPrice));
 
       const currentPrice = p1;
+
+      // ⭐ 디버깅: 주가 변경 감지
+      if (currentPrice !== basePrice) {
+        this.logger.log(
+          `팀 ${team.id}(${team.teamName}) 주가 변경: ${basePrice}원 → ${currentPrice}원 ` +
+          `(변화: ${currentPrice - basePrice > 0 ? '+' : ''}${currentPrice - basePrice}원)`
+        );
+      }
 
       // ⭐ 최적화: 배치 업데이트를 위해 배열에 추가
       priceUpdates.push({ teamId: team.id, price: currentPrice });
