@@ -850,5 +850,66 @@ export class DbInternalService {
         : null,
     }));
   }
+
+  async getCompetitionResults(awardType: string = 'grand'): Promise<Array<{
+    rank: number;
+    teamId: number;
+    teamName: string;
+    currentPrice: number;
+    totalInvestment: number;
+    priceChange: number;
+    priceChangeRate: number;
+    status: string;
+  }>> {
+    const INITIAL_PRICE = 1000;
+    
+    // awardType에 따라 가져올 순위 결정
+    const rankMap: Record<string, number> = {
+      'grand': 1,        // 대상: 1위
+      'excellent': 2,    // 최우수상: 2위
+      'good': 3,         // 우수상: 3위
+      'encouragement': 4, // 장려상: 4위
+    };
+    
+    const targetRank = rankMap[awardType] || 1;
+    
+    const query = `
+      SELECT 
+        id as "teamId",
+        "teamName",
+        COALESCE(p, ${INITIAL_PRICE}) as "currentPrice",
+        COALESCE(money, 0) as "totalInvestment",
+        status
+      FROM competition_teams
+      ORDER BY 
+        COALESCE(money, 0) DESC,
+        COALESCE(p, ${INITIAL_PRICE}) DESC,
+        id ASC
+      LIMIT 10
+    `;
+
+    const results = await this.dataSource.query(query);
+
+    const rankedResults = results.map((row: any, index: number) => {
+      const currentPrice = Number(row.currentPrice || INITIAL_PRICE);
+      const priceChange = currentPrice - INITIAL_PRICE;
+      const priceChangeRate = (priceChange / INITIAL_PRICE) * 100;
+
+      return {
+        rank: index + 1,
+        teamId: row.teamId,
+        teamName: row.teamName,
+        currentPrice,
+        totalInvestment: Number(row.totalInvestment || 0),
+        priceChange,
+        priceChangeRate: Math.round(priceChangeRate * 100) / 100,
+        status: row.status,
+      };
+    });
+
+    // 해당 순위의 팀만 반환 (룰렛을 위해 여러 팀을 섞어서 반환할 수도 있음)
+    const targetTeam = rankedResults.find((r: any) => r.rank === targetRank);
+    return targetTeam ? [targetTeam] : (rankedResults.length > 0 ? [rankedResults[0]] : []);
+  }
 }
 

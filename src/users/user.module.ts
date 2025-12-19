@@ -30,6 +30,6 @@ import { CompetitionTeam } from "../teams/entity/team.entity";
     UserDeletionController,
   ],
   providers: [UserService, UserDeletionService, AuthHeaderGuard],
-  exports: [TypeOrmModule],
+  exports: [TypeOrmModule, UserService],
 })
 export class UsersModule {}

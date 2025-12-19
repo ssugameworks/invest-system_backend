@@ -20,6 +20,8 @@ import { ApiTags, ApiOperation, ApiQuery, ApiBearerAuth, ApiBody } from "@nestjs
 import { Response, Request } from "express";
 import { DbInternalService } from "./db-internal.service";
 import { AdminGuard } from "../guards/admin.guard";
+import { AuthHeaderGuard } from "../guards/auth-header.guard";
+import { SchoolNumberGuard } from "../guards/school-number.guard";
 import { PricingService } from "../pricing/pricing.service";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
@@ -383,6 +385,15 @@ export class DbInternalController {
     team.currentSlide = currentSlide;
     await this.teamRepo.save(team);
     return { success: true, currentSlide };
+  }
+
+  @Get("api/competition/results")
+  @UseGuards(SchoolNumberGuard)
+  @ApiBearerAuth("bearer")
+  @ApiOperation({ summary: "Get competition results (team rankings) - Only for specific school numbers" })
+  @ApiQuery({ name: "type", required: false, enum: ["grand", "excellent", "good", "encouragement"], description: "Award type: grand(대상), excellent(최우수상), good(우수상), encouragement(장려상)" })
+  async getCompetitionResults(@Query("type") type?: string) {
+    return await this.dbInternalService.getCompetitionResults(type || 'grand');
   }
 
   private getHtmlPage(): string {
@@ -803,6 +814,37 @@ vmf        <!-- 🔴 실시간 모니터링 및 거래 중단 섹션 -->
                 </tr>
               </tbody>
             </table>
+          </div>
+        </div>
+
+        <!-- 대회 결과 발표 제어 섹션 -->
+        <div class="bg-white rounded-lg shadow p-6 mb-6">
+          <h2 class="text-xl font-semibold mb-4">대회 결과 발표 제어</h2>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <button
+              onclick="openAwardPage('grand')"
+              class="px-6 py-4 bg-gradient-to-r from-yellow-500 to-yellow-600 text-white rounded-lg hover:from-yellow-600 hover:to-yellow-700 transition-all font-semibold shadow-lg"
+            >
+              대상 결과 확인
+            </button>
+            <button
+              onclick="openAwardPage('excellent')"
+              class="px-6 py-4 bg-gradient-to-r from-gray-400 to-gray-500 text-white rounded-lg hover:from-gray-500 hover:to-gray-600 transition-all font-semibold shadow-lg"
+            >
+              최우수상 결과 확인
+            </button>
+            <button
+              onclick="openAwardPage('good')"
+              class="px-6 py-4 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded-lg hover:from-amber-700 hover:to-amber-800 transition-all font-semibold shadow-lg"
+            >
+              우수상 결과 확인
+            </button>
+            <button
+              onclick="openAwardPage('encouragement')"
+              class="px-6 py-4 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all font-semibold shadow-lg"
+            >
+              장려상 결과 확인
+            </button>
           </div>
         </div>
 
@@ -2236,6 +2278,13 @@ vmf        <!-- 🔴 실시간 모니터링 및 거래 중단 섹션 -->
     function closeToggleModal() {
       document.getElementById('trading-confirm-modal').classList.add('hidden');
       pendingTradingAction = null;
+    }
+
+    // 대회 결과 발표 페이지 열기
+    function openAwardPage(awardType) {
+      const frontendUrl = '${process.env.FRONTEND_URL || "http://localhost:3000"}';
+      const awardUrl = \`\${frontendUrl}/award/now?type=\${awardType}\`;
+      window.open(awardUrl, '_blank');
     }
 
     // 초기화
