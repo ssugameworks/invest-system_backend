@@ -80,6 +80,47 @@ export class InvestService {
     return existingHistory || null;
   }
 
+  /**
+   * SERIALIZABLE 격리 수준에서 발생하는 동시성 오류를 처리하기 위한 재시도 로직
+   */
+  private async retryTransaction<T>(
+    operation: () => Promise<T>,
+    maxRetries: number = 5,
+    baseDelay: number = 50
+  ): Promise<T> {
+    let lastError: any;
+    
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        return await operation();
+      } catch (error: any) {
+        lastError = error;
+        
+        // PostgreSQL의 SERIALIZABLE 격리 수준에서 발생하는 동시성 오류인지 확인
+        const isSerializationError = 
+          error?.code === '40001' || // serialization_failure
+          error?.code === '40P01' || // deadlock_detected
+          error?.message?.includes('could not serialize access') ||
+          error?.message?.includes('concurrent update');
+        
+        if (!isSerializationError) {
+          // 재시도 불가능한 오류는 즉시 throw
+          throw error;
+        }
+        
+        // 마지막 시도가 아니면 대기 후 재시도
+        if (attempt < maxRetries - 1) {
+          // Exponential backoff with jitter
+          const delay = baseDelay * Math.pow(2, attempt) + Math.random() * 10;
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+    }
+    
+    // 모든 재시도 실패 시 마지막 오류 throw
+    throw lastError;
+  }
+
   async invest(
     body: InvestRequestDto,
     authorization?: string
@@ -90,10 +131,12 @@ export class InvestService {
     const token = this.extractToken(authorization);
 
     // ⭐ SERIALIZABLE 격리 수준으로 트랜잭션 시작 (가장 강한 격리 수준)
+    // 동시성 오류 발생 시 자동 재시도
     try {
-    return await this.dataSource.transaction(
-      "SERIALIZABLE",
-      async (manager) => {
+    return await this.retryTransaction(async () => {
+      return await this.dataSource.transaction(
+        "SERIALIZABLE",
+        async (manager) => {
         // ⭐ 비관적 잠금으로 사용자 조회 (SELECT FOR UPDATE)
         const user = await manager
           .createQueryBuilder(User, "user")
@@ -146,10 +189,12 @@ export class InvestService {
           throw new BadRequestException("유효하지 않은 주가입니다.");
         }
 
-        // ⭐ 총 투자 시드 한도 체크 (잠금된 상태에서 SUM 쿼리)
+        // ⭐ 총 투자 시드 한도 체크 (SERIALIZABLE 격리 수준에서 일관성 보장)
         const TOTAL_INVESTMENT_SEED = 5000000; // 총 투자 시드 500만원
+        // 집계 함수와 FOR UPDATE는 함께 사용할 수 없으므로 FOR UPDATE 제거
+        // SERIALIZABLE 격리 수준으로 충분한 일관성 보장
         const totalInvestmentResult = await manager.query(
-          `SELECT COALESCE(SUM(money), 0) as total FROM competition_teams FOR UPDATE`
+          `SELECT COALESCE(SUM(money), 0) as total FROM competition_teams`
         );
         const currentTotalInvestment = Number(totalInvestmentResult[0]?.total || 0);
         const remainingCapacity = TOTAL_INVESTMENT_SEED - currentTotalInvestment;
@@ -239,7 +284,8 @@ export class InvestService {
           message,
         };
       }
-    );
+      );
+    });
     } catch (error) {
       // 거래 실패 기록
       DbInternalService.recordTransaction('buy', false);
@@ -257,10 +303,12 @@ export class InvestService {
     const token = this.extractToken(authorization);
 
     // ⭐ SERIALIZABLE 격리 수준으로 트랜잭션 시작
+    // 동시성 오류 발생 시 자동 재시도
     try {
-    return await this.dataSource.transaction(
-      "SERIALIZABLE",
-      async (manager) => {
+    return await this.retryTransaction(async () => {
+      return await this.dataSource.transaction(
+        "SERIALIZABLE",
+        async (manager) => {
         // ⭐ 비관적 잠금으로 사용자 조회
         const user = await manager
           .createQueryBuilder(User, "user")
@@ -389,7 +437,8 @@ export class InvestService {
           message: `매도가 완료되었습니다. (${sharesToSell.toFixed(4)}주 매도)`,
         };
       }
-    );
+      );
+    });
     } catch (error) {
       // 거래 실패 기록
       DbInternalService.recordTransaction('sell', false);

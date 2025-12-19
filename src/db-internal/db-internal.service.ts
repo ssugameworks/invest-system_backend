@@ -34,6 +34,19 @@ const SENSITIVE_COLUMNS = [
   "privateKey",
 ];
 
+export interface AwardResult {
+  awardType: string;
+  teamId: number;
+  teamName: string;
+  isReady: boolean;
+}
+
+export interface IndividualAward {
+  userId: number;
+  schoolNumber: number;
+  userName: string;
+}
+
 @Injectable()
 export class DbInternalService {
   private lastNetworkStats: { rx: number; tx: number; timestamp: number } | null = null;
@@ -41,12 +54,22 @@ export class DbInternalService {
   // 거래 상태 (true = 거래 가능, false = 거래 중단)
   private static tradingEnabled: boolean = true;
   
+  // 투자 서비스 오픈 상태 (true = 모든 사용자 투자 가능, false = 특정 학번만 가능)
+  private static investmentServiceOpen: boolean = false;
+  
   // 실시간 모니터링용 통계
   private static recentTransactions: Array<{
     timestamp: number;
     type: 'buy' | 'sell';
     success: boolean;
   }> = [];
+
+  // Award 결과 저장 (메모리)
+  private awardResults: Map<string, AwardResult> = new Map();
+  private individualAwards: IndividualAward[] = [];
+  private awardReadyStatus: Map<string, boolean> = new Map();
+  
+  private readonly INITIAL_PRICE = 1000;
 
   constructor(
     @InjectDataSource()
@@ -506,8 +529,8 @@ export class DbInternalService {
       U1: U,
       U2: U,
       // 주가 변동 민감도 설정
-      BUY_PRICE_CHANGE_PER_WON: Number(process.env.PRICING_BUY_PRICE_CHANGE_PER_WON ?? 0.00001),
-      SELL_PRICE_CHANGE_PER_WON: Number(process.env.PRICING_SELL_PRICE_CHANGE_PER_WON ?? 0.00001),
+      BUY_PRICE_CHANGE_PER_WON: Number(process.env.PRICING_BUY_PRICE_CHANGE_PER_WON ?? 0.000001),
+      SELL_PRICE_CHANGE_PER_WON: Number(process.env.PRICING_SELL_PRICE_CHANGE_PER_WON ?? 0.000001),
     };
   }
 
@@ -861,7 +884,39 @@ export class DbInternalService {
     priceChangeRate: number;
     status: string;
   }>> {
-    const INITIAL_PRICE = 1000;
+    // 저장된 결과가 있고 준비되었으면 저장된 결과 반환
+    const savedResult = await this.getAwardResult(awardType);
+    if (savedResult && this.isAwardReady(awardType)) {
+      // 저장된 팀 정보로 결과 생성
+      const team = await this.dataSource.query(`
+        SELECT 
+          id as "teamId",
+          "teamName",
+          COALESCE(p, ${this.INITIAL_PRICE}) as "currentPrice",
+          COALESCE(money, 0) as "totalInvestment",
+          status
+        FROM competition_teams
+        WHERE id = $1
+      `, [savedResult.teamId]);
+
+      if (team.length > 0) {
+        const row = team[0];
+        const currentPrice = Number(row.currentPrice || this.INITIAL_PRICE);
+        const priceChange = currentPrice - this.INITIAL_PRICE;
+        const priceChangeRate = (priceChange / this.INITIAL_PRICE) * 100;
+
+        return [{
+          rank: 1,
+          teamId: savedResult.teamId,
+          teamName: savedResult.teamName,
+          currentPrice,
+          totalInvestment: Number(row.totalInvestment || 0),
+          priceChange,
+          priceChangeRate: Math.round(priceChangeRate * 100) / 100,
+          status: row.status,
+        }];
+      }
+    }
     
     // awardType에 따라 가져올 순위 결정
     const rankMap: Record<string, number> = {
@@ -877,13 +932,13 @@ export class DbInternalService {
       SELECT 
         id as "teamId",
         "teamName",
-        COALESCE(p, ${INITIAL_PRICE}) as "currentPrice",
+        COALESCE(p, ${this.INITIAL_PRICE}) as "currentPrice",
         COALESCE(money, 0) as "totalInvestment",
         status
       FROM competition_teams
       ORDER BY 
         COALESCE(money, 0) DESC,
-        COALESCE(p, ${INITIAL_PRICE}) DESC,
+        COALESCE(p, ${this.INITIAL_PRICE}) DESC,
         id ASC
       LIMIT 10
     `;
@@ -891,9 +946,9 @@ export class DbInternalService {
     const results = await this.dataSource.query(query);
 
     const rankedResults = results.map((row: any, index: number) => {
-      const currentPrice = Number(row.currentPrice || INITIAL_PRICE);
-      const priceChange = currentPrice - INITIAL_PRICE;
-      const priceChangeRate = (priceChange / INITIAL_PRICE) * 100;
+      const currentPrice = Number(row.currentPrice || this.INITIAL_PRICE);
+      const priceChange = currentPrice - this.INITIAL_PRICE;
+      const priceChangeRate = (priceChange / this.INITIAL_PRICE) * 100;
 
       return {
         rank: index + 1,
@@ -910,6 +965,81 @@ export class DbInternalService {
     // 해당 순위의 팀만 반환 (룰렛을 위해 여러 팀을 섞어서 반환할 수도 있음)
     const targetTeam = rankedResults.find((r: any) => r.rank === targetRank);
     return targetTeam ? [targetTeam] : (rankedResults.length > 0 ? [rankedResults[0]] : []);
+  }
+
+  // Award 결과 상태 확인
+  isAwardReady(awardType: string): boolean {
+    return this.awardReadyStatus.get(awardType) || false;
+  }
+
+  // Award 결과 저장
+  setAwardResult(awardType: string, teamId: number, teamName: string): void {
+    this.awardResults.set(awardType, {
+      awardType,
+      teamId,
+      teamName,
+      isReady: true,
+    });
+    this.awardReadyStatus.set(awardType, true);
+  }
+
+  // Award 결과 조회 (저장된 결과가 있으면 반환)
+  async getAwardResult(awardType: string): Promise<AwardResult | null> {
+    const saved = this.awardResults.get(awardType);
+    if (saved && saved.isReady) {
+      return saved;
+    }
+    return null;
+  }
+
+  // Award 결과 준비 상태 설정
+  setAwardReady(awardType: string, ready: boolean): void {
+    this.awardReadyStatus.set(awardType, ready);
+  }
+
+  // 개인투자자 수상자 추가 (학번으로 사용자 정보 조회)
+  async addIndividualAward(schoolNumber: number): Promise<void> {
+    // 학번으로 사용자 정보 조회
+    const user = await this.dataSource.query(
+      `SELECT id, name, schoolnumber FROM users WHERE schoolnumber = $1 LIMIT 1`,
+      [schoolNumber]
+    );
+
+    if (!user || user.length === 0) {
+      throw new Error(`학번 ${schoolNumber}에 해당하는 사용자를 찾을 수 없습니다.`);
+    }
+
+    const userData = user[0];
+    this.individualAwards.push({ 
+      userId: userData.id, 
+      schoolNumber: userData.schoolnumber, 
+      userName: userData.name 
+    });
+  }
+
+  // 개인투자자 수상자 목록 조회
+  getIndividualAwards(): IndividualAward[] {
+    return [...this.individualAwards];
+  }
+
+  // 모든 Award 결과 조회
+  getAllAwardResults(): Array<{ awardType: string; teamId: number; teamName: string; isReady: boolean }> {
+    return Array.from(this.awardResults.values());
+  }
+
+  // 개인투자자 수상자 삭제
+  removeIndividualAward(schoolNumber: number): void {
+    this.individualAwards = this.individualAwards.filter((a: IndividualAward) => a.schoolNumber !== schoolNumber);
+  }
+
+  // 투자 서비스 오픈 상태 조회
+  isInvestmentServiceOpen(): boolean {
+    return DbInternalService.investmentServiceOpen;
+  }
+
+  // 투자 서비스 오픈 상태 설정
+  setInvestmentServiceOpen(open: boolean): void {
+    DbInternalService.investmentServiceOpen = open;
   }
 }
 

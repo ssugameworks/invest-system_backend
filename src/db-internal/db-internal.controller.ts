@@ -396,6 +396,114 @@ export class DbInternalController {
     return await this.dbInternalService.getCompetitionResults(type || 'grand');
   }
 
+  @Get("api/award/status")
+  @UseGuards(SchoolNumberGuard)
+  @ApiBearerAuth("bearer")
+  @ApiOperation({ summary: "Check if award result is ready" })
+  @ApiQuery({ name: "type", required: false, enum: ["grand", "excellent", "good", "encouragement"] })
+  async getAwardStatus(@Query("type") type?: string) {
+    const awardType = type || 'grand';
+    const isReady = this.dbInternalService.isAwardReady(awardType);
+    return { isReady, awardType };
+  }
+
+  @Post("api/award/result")
+  @UseGuards(AdminGuard)
+  @ApiBearerAuth("bearer")
+  @ApiOperation({ summary: "Set award result (Admin only)" })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        awardType: { type: 'string', enum: ['grand', 'excellent', 'good', 'encouragement'] },
+        teamId: { type: 'number' },
+        teamName: { type: 'string' },
+      },
+      required: ['awardType', 'teamId', 'teamName'],
+    },
+  })
+  async setAwardResult(@Body() body: { awardType: string; teamId: number; teamName: string }) {
+    this.dbInternalService.setAwardResult(body.awardType, body.teamId, body.teamName);
+    return { success: true, message: 'Award result saved' };
+  }
+
+  @Post("api/award/ready")
+  @UseGuards(AdminGuard)
+  @ApiBearerAuth("bearer")
+  @ApiOperation({ summary: "Set award ready status (Admin only)" })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        awardType: { type: 'string', enum: ['grand', 'excellent', 'good', 'encouragement'] },
+        ready: { type: 'boolean' },
+      },
+      required: ['awardType', 'ready'],
+    },
+  })
+  async setAwardReady(@Body() body: { awardType: string; ready: boolean }) {
+    this.dbInternalService.setAwardReady(body.awardType, body.ready);
+    return { success: true, message: `Award ${body.awardType} ready status set to ${body.ready}` };
+  }
+
+  @Post("api/award/individual")
+  @UseGuards(AdminGuard)
+  @ApiBearerAuth("bearer")
+  @ApiOperation({ summary: "Add individual award winner (Admin only)" })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        schoolNumber: { type: 'number', description: '학번' },
+      },
+      required: ['schoolNumber'],
+    },
+  })
+  async addIndividualAward(@Body() body: { schoolNumber: number }) {
+    await this.dbInternalService.addIndividualAward(body.schoolNumber);
+    return { success: true, message: 'Individual award added' };
+  }
+
+  @Get("api/award/individual")
+  @ApiOperation({ summary: "Get individual award winners for a specific type (Public)" })
+  @ApiQuery({ name: "type", required: false, enum: ["grand", "excellent", "good", "encouragement"], description: "Award type" })
+  async getIndividualAwards(@Query("type") type?: string) {
+    // type에 따라 필터링하거나 전체 반환 (현재는 전체 반환)
+    return this.dbInternalService.getIndividualAwards();
+  }
+
+  @Get("api/award/results")
+  @UseGuards(AdminGuard)
+  @ApiBearerAuth("bearer")
+  @ApiOperation({ summary: "Get all saved award results (Admin only)" })
+  async getAllAwardResults() {
+    return this.dbInternalService.getAllAwardResults();
+  }
+
+  @Get("api/investment/service-status")
+  @ApiOperation({ summary: "Get investment service open status (Public)" })
+  async getInvestmentServiceStatus() {
+    return { isOpen: this.dbInternalService.isInvestmentServiceOpen() };
+  }
+
+  @Post("api/investment/open-service")
+  @UseGuards(AdminGuard)
+  @ApiBearerAuth("bearer")
+  @ApiOperation({ summary: "Open investment service for all users (Admin only)" })
+  async openInvestmentService() {
+    this.dbInternalService.setInvestmentServiceOpen(true);
+    return { success: true, message: '투자 서비스가 모든 사용자에게 오픈되었습니다.' };
+  }
+
+  @Delete("api/award/individual/:schoolNumber")
+  @UseGuards(AdminGuard)
+  @ApiBearerAuth("bearer")
+  @ApiOperation({ summary: "Remove individual award winner (Admin only)" })
+  async removeIndividualAward(@Param("schoolNumber", ParseIntPipe) schoolNumber: number) {
+    this.dbInternalService.removeIndividualAward(schoolNumber);
+    return { success: true, message: 'Individual award removed' };
+  }
+
   private getHtmlPage(): string {
     return `<!DOCTYPE html>
 <html lang="ko">
@@ -622,12 +730,12 @@ vmf        <!-- 🔴 실시간 모니터링 및 거래 중단 섹션 -->
               <div class="p-3 bg-gray-50 rounded">
                 <label class="block text-gray-600 mb-1">매수 주가 민감도</label>
                 <input type="number" id="config-BUY_PRICE_CHANGE_PER_WON" step="0.0001" class="w-full px-2 py-1 border border-gray-300 rounded-md" />
-                <p class="text-xs text-gray-500 mt-1">기본값: 0.00001 (매수 1원당 주가 상승량)</p>
+                <p class="text-xs text-gray-500 mt-1">기본값: 0.000001 (매수 1원당 주가 상승량)</p>
               </div>
               <div class="p-3 bg-gray-50 rounded">
                 <label class="block text-gray-600 mb-1">매도 주가 민감도</label>
                 <input type="number" id="config-SELL_PRICE_CHANGE_PER_WON" step="0.0001" class="w-full px-2 py-1 border border-gray-300 rounded-md" />
-                <p class="text-xs text-gray-500 mt-1">기본값: 0.00001 (매도 1원당 주가 하락량)</p>
+                <p class="text-xs text-gray-500 mt-1">기본값: 0.000001(매도 1원당 주가 하락량)</p>
               </div>
             </div>
             <div class="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
@@ -819,31 +927,177 @@ vmf        <!-- 🔴 실시간 모니터링 및 거래 중단 섹션 -->
 
         <!-- 대회 결과 발표 제어 섹션 -->
         <div class="bg-white rounded-lg shadow p-6 mb-6">
-          <h2 class="text-xl font-semibold mb-4">대회 결과 발표 제어</h2>
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <h2 class="text-2xl font-bold mb-6 text-gray-800">🏆 대회 결과 발표 제어</h2>
+          
+          <!-- 대상팀 입력 폼 -->
+          <div class="mb-6 p-6 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg border-2 border-blue-200">
+            <h3 class="text-xl font-bold mb-4 text-blue-900">📋 대상팀 입력</h3>
+            <p class="text-sm text-gray-600 mb-4">각 상의 수상 팀을 선택하고 저장한 후, 발표 시작 버튼을 눌러주세요.</p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">상 종류</label>
+                <select id="award-type-select" class="w-full px-3 py-2 border border-gray-300 rounded-md">
+                  <option value="grand">대상</option>
+                  <option value="excellent">최우수상</option>
+                  <option value="good">우수상</option>
+                  <option value="encouragement">장려상</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">팀 선택</label>
+                <select id="award-team-select" class="w-full px-3 py-2 border border-gray-300 rounded-md">
+                  <option value="">팀을 선택하세요</option>
+                </select>
+              </div>
+            </div>
+            <div class="flex gap-3 flex-wrap">
+              <button
+                onclick="saveAwardResult()"
+                class="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold shadow-md"
+              >
+                💾 결과 저장
+              </button>
+              <button
+                onclick="setAwardReady()"
+                class="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-semibold shadow-md"
+              >
+                🎬 결과 발표 시작
+              </button>
+              <button
+                onclick="openAwardPageFromSelect()"
+                class="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-semibold shadow-md"
+              >
+                👁️ 결과 확인
+              </button>
+            </div>
+            <div id="award-result-status" class="mt-4 p-3 rounded-lg hidden">
+              <p class="text-sm font-semibold"></p>
+            </div>
+          </div>
+
+          <!-- 개인투자자 입력 폼 -->
+          <div class="mb-6 p-6 bg-gradient-to-br from-yellow-50 to-orange-50 rounded-lg border-2 border-yellow-200">
+            <h3 class="text-xl font-bold mb-4 text-yellow-900">👤 개인투자자 수상자 입력</h3>
+            <p class="text-sm text-gray-600 mb-4">학번만 입력하면 자동으로 사용자 정보가 조회됩니다.</p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">학번 <span class="text-red-500">*</span></label>
+                <input type="number" id="individual-school-number" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500" placeholder="예: 20241814" />
+              </div>
+              <div class="flex items-end">
+                <button
+                  onclick="addIndividualAward()"
+                  class="w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold shadow-md"
+                >
+                  ➕ 추가
+                </button>
+              </div>
+            </div>
+            <div class="flex gap-2 mb-4">
+              <button
+                onclick="loadIndividualAwards()"
+                class="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors"
+              >
+                🔄 목록 새로고침
+              </button>
+            </div>
+            <div id="individual-awards-list" class="mt-4">
+              <p class="text-sm text-gray-500">수상자 목록을 불러오는 중...</p>
+            </div>
+          </div>
+
+          <!-- 결과 확인 버튼 -->
+          <div class="mb-6">
+            <h3 class="text-lg font-semibold mb-3 text-gray-700">팀 수상 결과 확인</h3>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+              <button
+                onclick="openAwardPage('grand')"
+                class="px-6 py-4 bg-gradient-to-r from-yellow-500 to-yellow-600 text-white rounded-lg hover:from-yellow-600 hover:to-yellow-700 transition-all font-semibold shadow-lg"
+              >
+                대상 결과 확인
+              </button>
+              <button
+                onclick="openAwardPage('excellent')"
+                class="px-6 py-4 bg-gradient-to-r from-gray-400 to-gray-500 text-white rounded-lg hover:from-gray-500 hover:to-gray-600 transition-all font-semibold shadow-lg"
+              >
+                최우수상 결과 확인
+              </button>
+              <button
+                onclick="openAwardPage('good')"
+                class="px-6 py-4 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded-lg hover:from-amber-700 hover:to-amber-800 transition-all font-semibold shadow-lg"
+              >
+                우수상 결과 확인
+              </button>
+              <button
+                onclick="openAwardPage('encouragement')"
+                class="px-6 py-4 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all font-semibold shadow-lg"
+              >
+                장려상 결과 확인
+              </button>
+            </div>
+            <h3 class="text-lg font-semibold mb-3 text-gray-700">개인투자자 수상 결과 확인</h3>
+            <div>
+              <button
+                onclick="openAwardPage('grand')"
+                class="w-full px-6 py-4 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-lg hover:from-purple-600 hover:to-purple-700 transition-all font-semibold shadow-lg"
+              >
+                개인투자자 수상 결과 확인
+              </button>
+            </div>
+          </div>
+
+          <!-- 저장된 결과 목록 -->
+          <div class="mt-6 p-6 bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg border-2 border-green-200">
+            <div class="flex justify-between items-center mb-4">
+              <h3 class="text-xl font-bold text-green-900">📊 저장된 결과 목록</h3>
+              <button
+                onclick="loadSavedAwardResults()"
+                class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-semibold shadow-md"
+              >
+                🔄 새로고침
+              </button>
+            </div>
+            <div id="saved-award-results-list" class="space-y-3">
+              <p class="text-sm text-gray-500">저장된 결과를 불러오는 중...</p>
+            </div>
+          </div>
+
+          <!-- 저장된 개인투자자 수상자 목록 -->
+          <div class="mt-6 p-6 bg-gradient-to-br from-purple-50 to-pink-50 rounded-lg border-2 border-purple-200">
+            <div class="flex justify-between items-center mb-4">
+              <h3 class="text-xl font-bold text-purple-900">👥 저장된 개인투자자 수상자 목록</h3>
+              <button
+                onclick="loadAllIndividualAwards()"
+                class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-semibold shadow-md"
+              >
+                🔄 새로고침
+              </button>
+            </div>
+            <div id="all-individual-awards-list" class="space-y-3">
+              <p class="text-sm text-gray-500">수상자 목록을 불러오는 중...</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 투자 서비스 제어 섹션 -->
+        <div class="bg-white rounded-lg shadow p-6 mb-6">
+          <h2 class="text-2xl font-bold mb-6 text-gray-800">💰 투자 서비스 제어</h2>
+          
+          <div class="p-6 bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg border-2 border-green-200">
+            <h3 class="text-xl font-bold mb-4 text-green-900">🚀 투자 시작</h3>
+            <p class="text-sm text-gray-600 mb-4">이 버튼을 누르면 모든 사용자가 투자할 수 있게 됩니다.</p>
+            
+            <div class="flex items-center gap-4 mb-4">
+              <div id="investment-service-status" class="px-4 py-2 rounded-lg text-sm font-bold bg-gray-200 text-gray-700">
+                상태 확인 중...
+              </div>
+            </div>
+            
             <button
-              onclick="openAwardPage('grand')"
-              class="px-6 py-4 bg-gradient-to-r from-yellow-500 to-yellow-600 text-white rounded-lg hover:from-yellow-600 hover:to-yellow-700 transition-all font-semibold shadow-lg"
+              onclick="openInvestmentService()"
+              class="w-full px-6 py-4 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg hover:from-green-600 hover:to-green-700 transition-all font-semibold shadow-lg"
             >
-              대상 결과 확인
-            </button>
-            <button
-              onclick="openAwardPage('excellent')"
-              class="px-6 py-4 bg-gradient-to-r from-gray-400 to-gray-500 text-white rounded-lg hover:from-gray-500 hover:to-gray-600 transition-all font-semibold shadow-lg"
-            >
-              최우수상 결과 확인
-            </button>
-            <button
-              onclick="openAwardPage('good')"
-              class="px-6 py-4 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded-lg hover:from-amber-700 hover:to-amber-800 transition-all font-semibold shadow-lg"
-            >
-              우수상 결과 확인
-            </button>
-            <button
-              onclick="openAwardPage('encouragement')"
-              class="px-6 py-4 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all font-semibold shadow-lg"
-            >
-              장려상 결과 확인
+              ✅ 투자 시작 (모든 사용자 투자 가능)
             </button>
           </div>
         </div>
@@ -1106,10 +1360,16 @@ vmf        <!-- 🔴 실시간 모니터링 및 거래 중단 섹션 -->
     }
 
     function getAuthHeaders() {
-      return {
-        'Authorization': 'Bearer ' + adminToken,
+      const headers = {
         'Content-Type': 'application/json'
       };
+      
+      // adminToken이 있으면 Authorization 헤더 추가
+      if (adminToken && adminToken.trim() !== '') {
+        headers['Authorization'] = 'Bearer ' + adminToken;
+      }
+      
+      return headers;
     }
 
     async function apiRequest(endpoint, options = {}) {
@@ -1136,8 +1396,8 @@ vmf        <!-- 🔴 실시간 모니터링 및 거래 중단 섹션 -->
         } catch (e) {
           // JSON 파싱 실패 시 기본 메시지 사용
         }
-        console.error('Authentication error:', errorMessage, 'Status:', response.status);
-        handleLogout();
+        // 로그아웃하지 않고 에러만 반환 (일부 API는 인증이 필요 없을 수 있음)
+        // handleLogout()은 중요한 작업에서만 호출
         throw new Error(errorMessage);
       }
 
@@ -2287,6 +2547,349 @@ vmf        <!-- 🔴 실시간 모니터링 및 거래 중단 섹션 -->
       window.open(awardUrl, '_blank');
     }
 
+    function openAwardPageFromSelect() {
+      const awardType = document.getElementById('award-type-select').value;
+      openAwardPage(awardType);
+    }
+
+    async function saveAwardResult() {
+      const awardType = document.getElementById('award-type-select').value;
+      const teamId = parseInt(document.getElementById('award-team-select').value);
+      const teamSelect = document.getElementById('award-team-select');
+      const teamName = teamSelect.options[teamSelect.selectedIndex].text;
+
+      if (!awardType || !teamId) {
+        alert('상 종류와 팀을 선택해주세요.');
+        return;
+      }
+
+      const awardTypeLabel = awardType === 'grand' ? '대상' : awardType === 'excellent' ? '최우수상' : awardType === 'good' ? '우수상' : '장려상';
+      
+      if (!confirm(\`\${awardTypeLabel}: \${teamName} 팀을 저장하시겠습니까?\`)) {
+        return;
+      }
+
+      try {
+        await apiRequest('/award/result', {
+          method: 'POST',
+          body: JSON.stringify({
+            awardType,
+            teamId,
+            teamName,
+          }),
+        });
+        
+        const statusEl = document.getElementById('award-result-status');
+        statusEl.classList.remove('hidden', 'bg-red-50', 'border-red-200', 'text-red-800');
+        statusEl.classList.add('bg-green-50', 'border-green-200', 'text-green-800');
+        statusEl.querySelector('p').textContent = \`✅ \${awardTypeLabel}: \${teamName} 팀이 저장되었습니다.\`;
+        
+        alert(\`\${awardTypeLabel}: \${teamName} 팀이 저장되었습니다.\`);
+      } catch (error) {
+        const statusEl = document.getElementById('award-result-status');
+        statusEl.classList.remove('hidden', 'bg-green-50', 'border-green-200', 'text-green-800');
+        statusEl.classList.add('bg-red-50', 'border-red-200', 'text-red-800');
+        statusEl.querySelector('p').textContent = \`❌ 결과 저장에 실패했습니다: \${error.message}\`;
+        alert('결과 저장에 실패했습니다: ' + error.message);
+      }
+    }
+
+    async function setAwardReady() {
+      const awardType = document.getElementById('award-type-select').value;
+      if (!awardType) {
+        alert('상 종류를 선택해주세요.');
+        return;
+      }
+
+      const awardTypeLabel = awardType === 'grand' ? '대상' : awardType === 'excellent' ? '최우수상' : awardType === 'good' ? '우수상' : '장려상';
+      
+      // 먼저 결과가 저장되어 있는지 확인
+      const teamId = parseInt(document.getElementById('award-team-select').value);
+      if (!teamId) {
+        alert('먼저 결과를 저장해주세요. (팀을 선택하고 "결과 저장" 버튼을 눌러주세요)');
+        return;
+      }
+
+      if (!confirm(\`\${awardTypeLabel} 결과 발표를 시작하시겠습니까?\\n\\n프론트엔드에서 룰렛 애니메이션이 시작됩니다.\`)) {
+        return;
+      }
+
+      try {
+        await apiRequest('/award/ready', {
+          method: 'POST',
+          body: JSON.stringify({
+            awardType,
+            ready: true,
+          }),
+        });
+        
+        const statusEl = document.getElementById('award-result-status');
+        statusEl.classList.remove('hidden', 'bg-red-50', 'border-red-200', 'text-red-800');
+        statusEl.classList.add('bg-green-50', 'border-green-200', 'text-green-800');
+        statusEl.querySelector('p').textContent = \`🎬 \${awardTypeLabel} 결과 발표가 시작되었습니다! 프론트엔드에서 확인할 수 있습니다.\`;
+        
+        alert(\`✅ \${awardTypeLabel} 결과 발표가 시작되었습니다!\\n\\n프론트엔드(/award/now?type=\${awardType})에서 룰렛 애니메이션이 시작됩니다.\`);
+      } catch (error) {
+        const statusEl = document.getElementById('award-result-status');
+        statusEl.classList.remove('hidden', 'bg-green-50', 'border-green-200', 'text-green-800');
+        statusEl.classList.add('bg-red-50', 'border-red-200', 'text-red-800');
+        statusEl.querySelector('p').textContent = \`❌ 결과 발표 시작에 실패했습니다: \${error.message}\`;
+        alert('결과 발표 시작에 실패했습니다: ' + error.message);
+      }
+    }
+
+    async function addIndividualAward() {
+      const schoolNumberInput = document.getElementById('individual-school-number');
+      const schoolNumber = parseInt(schoolNumberInput.value);
+
+      if (!schoolNumber || isNaN(schoolNumber)) {
+        alert('학번을 입력해주세요.');
+        schoolNumberInput.focus();
+        return;
+      }
+
+      if (!confirm(\`학번 \${schoolNumber}을(를) 수상자로 추가하시겠습니까?\`)) {
+        return;
+      }
+
+      try {
+        await apiRequest('/award/individual', {
+          method: 'POST',
+          body: JSON.stringify({
+            schoolNumber,
+          }),
+        });
+        alert(\`✅ 학번 \${schoolNumber}이(가) 수상자로 추가되었습니다.\`);
+        schoolNumberInput.value = '';
+        schoolNumberInput.focus();
+        loadIndividualAwards();
+        loadAllIndividualAwards(); // 전체 목록도 새로고침
+      } catch (error) {
+        alert('❌ 수상자 추가에 실패했습니다: ' + error.message);
+      }
+    }
+
+    async function loadIndividualAwards() {
+      try {
+        const awards = await apiRequest('/award/individual');
+        const listEl = document.getElementById('individual-awards-list');
+        
+        if (!listEl) return;
+        
+        if (!awards || awards.length === 0) {
+          listEl.innerHTML = '<p class="text-sm text-gray-500">등록된 수상자가 없습니다.</p>';
+          return;
+        }
+
+        listEl.innerHTML = awards.map((award, index) => \`
+          <div class="flex items-center justify-between p-3 bg-white rounded-lg border border-gray-200 mb-2">
+            <div>
+              <span class="font-semibold">\${award.userName}</span>
+              <span class="text-sm text-gray-500 ml-2">(학번: \${award.schoolNumber}, ID: \${award.userId})</span>
+            </div>
+            <button
+              onclick="removeIndividualAward(\${award.schoolNumber})"
+              class="px-3 py-1 bg-red-500 text-white rounded-md hover:bg-red-600 text-sm"
+            >
+              삭제
+            </button>
+          </div>
+        \`).join('');
+      } catch (error) {
+        console.error('Failed to load individual awards:', error);
+        const listEl = document.getElementById('individual-awards-list');
+        if (listEl) {
+          listEl.innerHTML = '<p class="text-sm text-gray-500">목록을 불러올 수 없습니다. (인증 필요)</p>';
+        }
+      }
+    }
+
+    async function removeIndividualAward(schoolNumber) {
+      if (!confirm('정말 삭제하시겠습니까?')) {
+        return;
+      }
+
+      try {
+        await apiRequest(\`/db-internal/api/award/individual/\${schoolNumber}\`, {
+          method: 'DELETE',
+        });
+        alert('삭제되었습니다.');
+        loadIndividualAwards();
+      } catch (error) {
+        alert('삭제에 실패했습니다: ' + error.message);
+      }
+    }
+
+    // 팀 목록 로드 (award-team-select에 채우기)
+    async function loadTeamsForAward() {
+      try {
+        const teams = await apiRequest('/teams');
+        const selectEl = document.getElementById('award-team-select');
+        selectEl.innerHTML = '<option value="">팀을 선택하세요</option>' + 
+          teams.map(team => \`<option value="\${team.id}">\${team.teamName}</option>\`).join('');
+      } catch (error) {
+        console.error('Failed to load teams:', error);
+      }
+    }
+
+    // 저장된 Award 결과 목록 로드
+    async function loadSavedAwardResults() {
+      try {
+        const results = await apiRequest('/award/results');
+        const listEl = document.getElementById('saved-award-results-list');
+        
+        if (!listEl) return; // 요소가 없으면 종료
+        
+        if (!results || results.length === 0) {
+          listEl.innerHTML = '<p class="text-sm text-gray-500">저장된 결과가 없습니다.</p>';
+          return;
+        }
+
+        const awardTypeLabels = {
+          'grand': '대상',
+          'excellent': '최우수상',
+          'good': '우수상',
+          'encouragement': '장려상'
+        };
+
+        listEl.innerHTML = results.map(result => \`
+          <div class="p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
+            <div class="flex justify-between items-start">
+              <div class="flex-1">
+                <div class="flex items-center gap-3 mb-2">
+                  <span class="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-semibold">
+                    \${awardTypeLabels[result.awardType] || result.awardType}
+                  </span>
+                  <span class="px-2 py-1 \${result.isReady ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'} rounded-full text-xs font-medium">
+                    \${result.isReady ? '발표 준비됨' : '저장됨'}
+                  </span>
+                </div>
+                <p class="text-lg font-bold text-gray-900">\${result.teamName}</p>
+                <p class="text-sm text-gray-500 mt-1">팀 ID: \${result.teamId}</p>
+              </div>
+              <button
+                onclick="openAwardPage('\${result.awardType}')"
+                class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-semibold"
+              >
+                확인
+              </button>
+            </div>
+          </div>
+        \`).join('');
+      } catch (error) {
+        const listEl = document.getElementById('saved-award-results-list');
+        if (listEl) {
+          listEl.innerHTML = \`<p class="text-sm text-red-500">목록을 불러오는데 실패했습니다: \${error.message}</p>\`;
+        }
+      }
+    }
+
+    // 모든 개인투자자 수상자 목록 로드
+    async function loadAllIndividualAwards() {
+      try {
+        // 토큰 없이도 호출 가능하도록 직접 fetch 사용
+        const response = await fetch(API_BASE + '/award/individual', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to load awards');
+        }
+        
+        const awards = await response.json();
+        const listEl = document.getElementById('all-individual-awards-list');
+        
+        if (!listEl) return; // 요소가 없으면 종료
+        
+        if (!awards || awards.length === 0) {
+          listEl.innerHTML = '<p class="text-sm text-gray-500">등록된 개인투자자 수상자가 없습니다.</p>';
+          return;
+        }
+
+        listEl.innerHTML = awards.map((award, index) => \`
+          <div class="p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
+            <div class="flex justify-between items-center">
+              <div class="flex items-center gap-4">
+                <span class="text-2xl font-bold text-gray-400">#\${index + 1}</span>
+                <div>
+                  <p class="text-lg font-bold text-gray-900">\${award.userName}</p>
+                  <p class="text-sm text-gray-500">학번: \${award.schoolNumber}</p>
+                </div>
+              </div>
+              <button
+                onclick="removeIndividualAward(\${award.schoolNumber})"
+                class="px-3 py-1 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors text-sm"
+              >
+                삭제
+              </button>
+            </div>
+          </div>
+        \`).join('');
+      } catch (error) {
+        const listEl = document.getElementById('all-individual-awards-list');
+        if (listEl) {
+          listEl.innerHTML = \`<p class="text-sm text-red-500">목록을 불러오는데 실패했습니다: \${error.message}</p>\`;
+        }
+      }
+    }
+
+    // 투자 서비스 상태 로드
+    async function loadInvestmentServiceStatus() {
+      try {
+        const response = await fetch(API_BASE + '/investment/service-status', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to load status');
+        }
+        
+        const data = await response.json();
+        const statusEl = document.getElementById('investment-service-status');
+        
+        if (statusEl) {
+          if (data.isOpen) {
+            statusEl.textContent = '✅ 모든 사용자 투자 가능';
+            statusEl.className = 'px-4 py-2 rounded-lg text-sm font-bold bg-green-500 text-white';
+          } else {
+            statusEl.textContent = '🔒 특정 학번만 투자 가능';
+            statusEl.className = 'px-4 py-2 rounded-lg text-sm font-bold bg-yellow-500 text-white';
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load investment service status:', error);
+        const statusEl = document.getElementById('investment-service-status');
+        if (statusEl) {
+          statusEl.textContent = '❌ 상태 확인 실패';
+          statusEl.className = 'px-4 py-2 rounded-lg text-sm font-bold bg-red-500 text-white';
+        }
+      }
+    }
+
+    // 투자 서비스 오픈
+    async function openInvestmentService() {
+      if (!confirm('정말로 모든 사용자가 투자할 수 있도록 서비스를 오픈하시겠습니까?\\n\\n이 작업은 되돌릴 수 없습니다.')) {
+        return;
+      }
+
+      try {
+        await apiRequest('/investment/open-service', {
+          method: 'POST'
+        });
+        
+        alert('✅ 투자 서비스가 모든 사용자에게 오픈되었습니다!');
+        loadInvestmentServiceStatus();
+      } catch (error) {
+        alert('❌ 투자 서비스 오픈에 실패했습니다: ' + error.message);
+      }
+    }
+
     // 초기화
     if (adminToken) {
       showMainScreen();
@@ -2297,6 +2900,12 @@ vmf        <!-- 🔴 실시간 모니터링 및 거래 중단 섹션 -->
       loadInvestmentOverview();
       loadInvestorRankings();
       loadRealtimeMonitoring();
+      loadTeamsForAward();
+      loadIndividualAwards();
+      loadSavedAwardResults();
+      loadAllIndividualAwards();
+      loadInvestmentServiceStatus();
+      loadInvestmentServiceStatus();
       // 투자 시드 정보 주기적 업데이트 (10초마다)
       setInterval(async () => {
         try {
