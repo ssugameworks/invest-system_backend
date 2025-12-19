@@ -29,6 +29,11 @@ async function bootstrap() {
       'https://invest-systembackend-production.up.railway.app'
     ];
     
+    // 백엔드 서버 URL (자체 origin 요청 허용을 위해 항상 포함)
+    const backendUrl = process.env.RAILWAY_PUBLIC_DOMAIN 
+      ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+      : 'https://invest-systembackend-production.up.railway.app';
+    
     let allowedOrigins: string[] = [];
     
     if (process.env.FRONTEND_URL) {
@@ -46,6 +51,16 @@ async function bootstrap() {
     
     if (allowedOrigins.length === 0) {
       allowedOrigins = defaultOrigins;
+    } else {
+      // FRONTEND_URL이 설정되어 있어도 백엔드 서버 URL과 defaultOrigins는 항상 추가
+      if (!allowedOrigins.includes(backendUrl)) {
+        allowedOrigins.push(backendUrl);
+      }
+      defaultOrigins.forEach(origin => {
+        if (!allowedOrigins.includes(origin)) {
+          allowedOrigins.push(origin);
+        }
+      });
     }
 
     console.log(`🌐 허용된 CORS Origins: ${allowedOrigins.join(', ')}`);
@@ -74,6 +89,16 @@ async function bootstrap() {
               callback(null, true);
               return;
             }
+          }
+          
+          // 백엔드 서버가 자신의 origin으로 요청하는 경우 허용
+          const currentBackendUrl = process.env.RAILWAY_PUBLIC_DOMAIN 
+            ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+            : 'https://invest-systembackend-production.up.railway.app';
+          
+          if (origin === currentBackendUrl) {
+            callback(null, true);
+            return;
           }
           
           // 허용된 origin 목록에 있으면 허용
